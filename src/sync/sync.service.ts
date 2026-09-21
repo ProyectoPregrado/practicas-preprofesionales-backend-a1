@@ -9,24 +9,39 @@ export class SyncService {
 
   async pull(userId: number, since: string | undefined, limit: number) {
     const cursor = decodeCheckpoint(since)
-    // El cursor avanza por updatedAt.
-    const where = cursor ? { updatedAt: { gt: new Date(cursor.updatedAt) } } : {}
-    const order = { updatedAt: 'asc' as const }
+
+    // E1-05: cursor determinista con (updatedAt, id) — ni un registro se pierde
+    // cuando múltiples comparten el mismo timestamp.
+    const where = cursor
+      ? {
+          OR: [
+            { updatedAt: { gt: new Date(cursor.updatedAt) } },
+            { updatedAt: new Date(cursor.updatedAt), id: { gt: cursor.id } },
+          ],
+        }
+      : {}
+
+    const orderBy = [{ updatedAt: 'asc' as const }, { id: 'asc' as const }]
     const scope = { placement: { OR: [{ studentId: userId }, { tutorId: userId }] } }
 
     const [placements, hourLogs, documents, evaluations] = await Promise.all([
       this.prisma.placement.findMany({
         where: { ...where, OR: [{ studentId: userId }, { tutorId: userId }] },
-        orderBy: order,
+        orderBy,
         take: limit,
       }),
-      this.prisma.hourLog.findMany({ where: { ...where, ...scope }, orderBy: order, take: limit }),
-      this.prisma.document.findMany({ where: { ...where, ...scope }, orderBy: order, take: limit }),
-      this.prisma.evaluation.findMany({ where: { ...where, ...scope }, orderBy: order, take: limit }),
+      this.prisma.hourLog.findMany({ where: { ...where, ...scope }, orderBy, take: limit }),
+      this.prisma.document.findMany({ where: { ...where, ...scope }, orderBy, take: limit }),
+      this.prisma.evaluation.findMany({ where: { ...where, ...scope }, orderBy, take: limit }),
     ])
 
-    const newest = [...placements, ...hourLogs, ...documents, ...evaluations]
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0]
+    // E1-05: determinar el checkpoint con el mismo orden determinista (updatedAt, id).
+    const allRows = [...placements, ...hourLogs, ...documents, ...evaluations]
+    const newest = allRows.sort(
+      (a, b) =>
+        new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime() ||
+        a.id - b.id,
+    ).at(-1)
 
     const checkpoint: Checkpoint | null = newest
       ? { updatedAt: new Date(newest.updatedAt).toISOString(), id: newest.id }
@@ -42,10 +57,18 @@ export class SyncService {
   async push(userId: number, ops: SyncOperationInput[]) {
     const results: SyncOperationResult[] = []
     for (const op of ops) {
+      // D-01: consultar sync_operations ANTES de aplicar — si ya se procesó
+      // este clientOpId, devolver el resultado anterior sin re-aplicar.
+      const existing = await this.prisma.syncOperation.findUnique({
+        where: { clientOpId: op.clientOpId },
+      })
+      if (existing) {
+        results.push(existing.response as unknown as SyncOperationResult)
+        continue
+      }
+
       let result: SyncOperationResult
       try {
-        // D-01: sync_operations se escribe pero NUNCA se consulta antes de
-        // aplicar. Un reintento con el mismo clientOpId aplica dos veces.
         result = await this.applyOperation(userId, op)
       } catch (err) {
         result = {
@@ -55,15 +78,9 @@ export class SyncService {
           reason: err instanceof Error ? err.message : 'no se pudo aplicar la operación',
         }
       }
-      try {
-        await this.prisma.syncOperation.create({
-          data: { clientOpId: op.clientOpId, userId, response: result as unknown as object },
-        })
-      } catch {
-        // clientOpId es la clave primaria: un reintento choca con el
-        // registro previo. El log de sync_operations se ignora, pero la
-        // operación de negocio ya se aplicó arriba — eso es D-01.
-      }
+      await this.prisma.syncOperation.create({
+        data: { clientOpId: op.clientOpId, userId, response: result as unknown as object },
+      })
       results.push(result)
     }
     return { results }
