@@ -286,4 +286,121 @@ describe('SyncService — pull', () => {
       expect.objectContaining({ where: { id: 1 }, data: expect.objectContaining({ deletedAt: expect.any(Date) }) }),
     )
   })
+
+
+  // -------------------------------------------------------------------------
+  // E1-04 — Autoridad del servidor: rechazar edición de horas resueltas
+  // -------------------------------------------------------------------------
+
+  it('E1-04: rechaza la edición offline si la hora ya fue aprobada por el tutor (APPROVED)', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 10,
+      status: 'APPROVED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+
+    const result = await service.push(5, [
+      {
+        clientOpId: '66666666-6666-4666-8666-666666666666',
+        entity: 'hourLog',
+        op: 'update',
+        baseVersion: 1,
+        payload: { id: 10, activity: 'Intento de cambio offline', hours: 6 },
+      },
+    ])
+
+    expect(result.results[0].status).toBe('rejected')
+    expect(result.results[0].reason).toContain('APPROVED')
+    expect(result.results[0].server).toBeDefined()
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
+  })
+
+  it('E1-04: rechaza la edición offline si la hora ya fue rechazada por el tutor (REJECTED)', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 11,
+      status: 'REJECTED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+
+    const result = await service.push(5, [
+      {
+        clientOpId: '77777777-7777-4777-8777-777777777777',
+        entity: 'hourLog',
+        op: 'update',
+        baseVersion: 1,
+        payload: { id: 11, activity: 'Otro cambio offline', hours: 5 },
+      },
+    ])
+
+    expect(result.results[0].status).toBe('rejected')
+    expect(result.results[0].reason).toContain('REJECTED')
+    expect(result.results[0].server).toBeDefined()
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
+  })
+
+  it('E1-04: rechaza la actualización si la versión del cliente es más antigua que la del servidor', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 12,
+      status: 'SUBMITTED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T14:00:00.000Z'), // Servidor más reciente
+    })
+
+    const result = await service.push(5, [
+      {
+        clientOpId: '88888888-8888-4888-8888-888888888888',
+        entity: 'hourLog',
+        op: 'update',
+        baseVersion: 1,
+        payload: {
+          id: 12,
+          updatedAt: '2026-04-02T12:00:00.000Z', // Cliente más antiguo
+          date: '2026-04-02',
+          startTime: '08:00',
+          endTime: '12:00',
+          hours: 4,
+          activity: 'Cambio retrasado',
+        },
+      },
+    ])
+
+    expect(result.results[0].status).toBe('rejected')
+    expect(result.results[0].reason).toContain('más reciente')
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
+  })
+
+  it('E1-04: permite la actualización en SUBMITTED/DRAFT si el cliente tiene marca de tiempo igual o más reciente', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 13,
+      status: 'SUBMITTED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+    prisma.hourLog.update.mockResolvedValue({ id: 13, version: 2, status: 'SUBMITTED' })
+
+    const result = await service.push(5, [
+      {
+        clientOpId: '99999999-9999-4999-8999-999999999999',
+        entity: 'hourLog',
+        op: 'update',
+        baseVersion: 1,
+        payload: {
+          id: 13,
+          updatedAt: '2026-04-02T11:00:00.000Z', // Más reciente que el servidor
+          date: '2026-04-02',
+          startTime: '08:00',
+          endTime: '12:00',
+          hours: 4,
+          activity: 'Cambio offline válido',
+        },
+      },
+    ])
+
+    expect(result.results[0].status).toBe('applied')
+    expect(prisma.hourLog.update).toHaveBeenCalledTimes(1)
+  })
 })
+
+

@@ -86,29 +86,13 @@ export class SyncService {
     return { results }
   }
 
-  private async applyOperation(userId: number, op: SyncOperationInput): Promise<SyncOperationResult> {
+private async applyOperation(userId: number, op: SyncOperationInput): Promise<SyncOperationResult> {
     if (op.entity !== 'hourLog') {
       return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: 'entidad no sincronizable desde el cliente' }
     }
 
     if (op.op === 'create') {
-      const placement = await this.prisma.placement.findUnique({ where: { id: Number(op.payload.placementId) } })
-      if (!placement || placement.studentId !== userId) {
-        return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: 'el placement no pertenece al usuario' }
-      }
-
-      const created = await this.prisma.hourLog.create({
-        data: {
-          placementId: Number(op.payload.placementId),
-          date: new Date(String(op.payload.date)),
-          startTime: String(op.payload.startTime),
-          endTime: String(op.payload.endTime),
-          hours: Number(op.payload.hours),
-          activity: String(op.payload.activity),
-          status: 'SUBMITTED',
-        },
-      })
-      return { clientOpId: op.clientOpId, status: 'applied', server: created as never, reason: null }
+      return this.handleCreateHourLog(userId, op)
     }
 
     const existing = await this.prisma.hourLog.findUnique({
@@ -119,20 +103,18 @@ export class SyncService {
       return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: 'el registro no pertenece al usuario' }
     }
 
+    // E1-04: Autoridad del servidor sobre registros resueltos por tutor
+    if (existing.status === 'APPROVED' || existing.status === 'REJECTED') {
+      return {
+        clientOpId: op.clientOpId,
+        status: 'rejected',
+        server: existing as never,
+        reason: `No se puede modificar una hora que ya fue resuelta por el tutor (${existing.status})`,
+      }
+    }
+
     if (op.op === 'update') {
-      // La actualización aplica los campos recibidos y avanza version.
-      const updated = await this.prisma.hourLog.update({
-        where: { id: Number(op.payload.id) },
-        data: {
-          date: new Date(String(op.payload.date)),
-          startTime: String(op.payload.startTime),
-          endTime: String(op.payload.endTime),
-          hours: Number(op.payload.hours),
-          activity: String(op.payload.activity),
-          version: { increment: 1 },
-        },
-      })
-      return { clientOpId: op.clientOpId, status: 'applied', server: updated as never, reason: null }
+      return this.handleUpdateHourLog(existing, op)
     }
 
     const deleted = await this.prisma.hourLog.update({
@@ -140,5 +122,55 @@ export class SyncService {
       data: { deletedAt: new Date(), version: { increment: 1 } },
     })
     return { clientOpId: op.clientOpId, status: 'applied', server: deleted as never, reason: null }
+  }
+
+  private async handleCreateHourLog(userId: number, op: SyncOperationInput): Promise<SyncOperationResult> {
+    const placement = await this.prisma.placement.findUnique({ where: { id: Number(op.payload.placementId) } })
+    if (!placement || placement.studentId !== userId) {
+      return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: 'el placement no pertenece al usuario' }
+    }
+
+    const created = await this.prisma.hourLog.create({
+      data: {
+        placementId: Number(op.payload.placementId),
+        date: new Date(String(op.payload.date)),
+        startTime: String(op.payload.startTime),
+        endTime: String(op.payload.endTime),
+        hours: Number(op.payload.hours),
+        activity: String(op.payload.activity),
+        status: 'SUBMITTED',
+      },
+    })
+    return { clientOpId: op.clientOpId, status: 'applied', server: created as never, reason: null }
+  }
+
+  private async handleUpdateHourLog(existing: any, op: SyncOperationInput): Promise<SyncOperationResult> {
+    // E1-04: Resolución basada en marca temporal más reciente cuando está en DRAFT o SUBMITTED
+    if (op.payload.updatedAt) {
+      const clientUpdatedAt = new Date(String(op.payload.updatedAt)).getTime()
+      const serverUpdatedAt = new Date(existing.updatedAt).getTime()
+
+      if (clientUpdatedAt < serverUpdatedAt) {
+        return {
+          clientOpId: op.clientOpId,
+          status: 'rejected',
+          server: existing as never,
+          reason: 'Conflicto: la versión del servidor es más reciente que los cambios offline enviados',
+        }
+      }
+    }
+
+    const updated = await this.prisma.hourLog.update({
+      where: { id: Number(op.payload.id) },
+      data: {
+        date: new Date(String(op.payload.date)),
+        startTime: String(op.payload.startTime),
+        endTime: String(op.payload.endTime),
+        hours: Number(op.payload.hours),
+        activity: String(op.payload.activity),
+        version: { increment: 1 },
+      },
+    })
+    return { clientOpId: op.clientOpId, status: 'applied', server: updated as never, reason: null }
   }
 }
