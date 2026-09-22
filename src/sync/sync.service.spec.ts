@@ -287,6 +287,54 @@ describe('SyncService — pull', () => {
     )
   })
 
+  it('E1-04: rechaza el delete offline si la hora ya fue aprobada (APPROVED)', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 20,
+      status: 'APPROVED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+
+    const result = await service.push(5, [
+      {
+        clientOpId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+        entity: 'hourLog',
+        op: 'delete',
+        baseVersion: 1,
+        payload: { id: 20 },
+      },
+    ])
+
+    expect(result.results[0].status).toBe('rejected')
+    expect(result.results[0].reason).toContain('APPROVED')
+    expect(result.results[0].server).toBeDefined()
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
+  })
+
+  it('E1-04: rechaza el delete offline si la hora ya fue rechazada (REJECTED)', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 21,
+      status: 'REJECTED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+
+    const result = await service.push(5, [
+      {
+        clientOpId: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',
+        entity: 'hourLog',
+        op: 'delete',
+        baseVersion: 1,
+        payload: { id: 21 },
+      },
+    ])
+
+    expect(result.results[0].status).toBe('rejected')
+    expect(result.results[0].reason).toContain('REJECTED')
+    expect(result.results[0].server).toBeDefined()
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
+  })
+
 
   // -------------------------------------------------------------------------
   // E1-04 — Autoridad del servidor: rechazar edición de horas resueltas

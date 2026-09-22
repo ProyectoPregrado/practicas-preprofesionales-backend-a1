@@ -105,11 +105,12 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
 
     // E1-04: Autoridad del servidor sobre registros resueltos por tutor
     if (existing.status === 'APPROVED' || existing.status === 'REJECTED') {
+      const action = op.op === 'update' ? 'modificar' : 'eliminar'
       return {
         clientOpId: op.clientOpId,
         status: 'rejected',
         server: existing as never,
-        reason: `No se puede modificar una hora que ya fue resuelta por el tutor (${existing.status})`,
+        reason: `No se puede ${action} una hora que ya fue resuelta por el tutor (${existing.status})`,
       }
     }
 
