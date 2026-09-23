@@ -4,7 +4,7 @@ Lo que sabemos que está mal y no alcanzamos a arreglar. Está ordenado por lo q
 dolió, no por severidad técnica.
 
 Si encuentras algo que no está acá, agrégalo. Casi seguro hay más.
-
+--- Deuda Pagada
 ## D-01 · El sync duplica horas al reintentar
 
 `src/offline/sync/push.ts` (front) y `src/sync/sync.service.ts` (back).
@@ -16,6 +16,8 @@ no está cerrando el círculo. No tuvimos tiempo de sentarnos a entenderlo.
 
 Workaround actual: el coordinador borra los duplicados a mano.
 
+--- Deuda Pagada
+
 ## D-02 · `HourLogService` se nos fue de las manos
 
 `src/hour-log/hour-log.service.ts`
@@ -23,6 +25,8 @@ Workaround actual: el coordinador borra los duplicados a mano.
 Empezó siendo el CRUD de horas y terminó haciendo validación, persistencia, notificación al
 tutor y agregación de reportes. Pasa las 300 líneas. Cada vez que hay que tocar algo ahí, hay
 que leerlo entero. Habría que partirlo por responsabilidad, pero nunca fue prioridad.
+--- Deuda Pagada
+
 
 ## D-03 · El módulo de evaluaciones no tiene tests
 
