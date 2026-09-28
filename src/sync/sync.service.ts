@@ -116,9 +116,9 @@ export class SyncService {
   ): Promise<SyncOperationResult> {
     for (let i = 0; i < attempts; i++) {
       const row = await this.prisma.syncOperation.findUnique({ where: { clientOpId } })
-      const response = row?.response as unknown as (SyncOperationResult & { status: string }) | undefined
+      const response = row?.response as unknown as { status: string } | undefined
       if (response && response.status !== 'pending') {
-        return response
+        return response as unknown as SyncOperationResult
       }
       await new Promise((resolve) => setTimeout(resolve, delayMs))
     }
