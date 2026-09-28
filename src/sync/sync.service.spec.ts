@@ -7,7 +7,7 @@ const prisma = {
   hourLog: { findMany: vi.fn(), create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
   document: { findMany: vi.fn() },
   evaluation: { findMany: vi.fn() },
-  syncOperation: { create: vi.fn(), findUnique: vi.fn() },
+  syncOperation: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
 }
 
 describe('SyncService — pull', () => {
@@ -164,11 +164,14 @@ describe('SyncService — pull', () => {
       },
     }
 
-    // Primera llamada: findUnique devuelve null → aplica la operación
+    // Primera llamada: la reserva del clientOpId tiene éxito → aplica la operación
     await service.push(5, [op])
     expect(prisma.hourLog.create).toHaveBeenCalledTimes(1)
 
-    // Segunda llamada con el mismo clientOpId: findUnique devuelve el registro previo
+    // Segunda llamada (reintento secuencial) con el mismo clientOpId: la reserva
+    // choca con la restricción única (ya existe la fila) y el resultado real
+    // queda disponible de inmediato.
+    prisma.syncOperation.create.mockRejectedValueOnce({ code: 'P2002' })
     prisma.syncOperation.findUnique.mockResolvedValue({
       clientOpId: '22222222-2222-4222-8222-222222222222',
       userId: 5,
@@ -202,7 +205,8 @@ describe('SyncService — pull', () => {
     const first = await service.push(5, [op])
     expect(first.results[0].status).toBe('applied')
 
-    // Simular que ya se había procesado antes
+    // Simular que ya se había procesado antes: la reserva choca con la fila existente
+    prisma.syncOperation.create.mockRejectedValueOnce({ code: 'P2002' })
     prisma.syncOperation.findUnique.mockResolvedValue({
       clientOpId: '33333333-3333-4333-8333-333333333333',
       userId: 5,
@@ -212,6 +216,56 @@ describe('SyncService — pull', () => {
     const retry = await service.push(5, [op])
     expect(retry.results[0].status).toBe('applied')
     expect(retry.results[0]).toMatchObject(first.results[0])
+  })
+
+  // -------------------------------------------------------------------------
+  // E1-03b — deduplicación bajo concurrencia real (no solo reintento secuencial)
+  // -------------------------------------------------------------------------
+
+  it('E1-03b: dos envíos concurrentes con el mismo clientOpId no crean dos hourLog', async () => {
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
+
+    const op: SyncOperationInput = {
+      clientOpId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      entity: 'hourLog',
+      op: 'create',
+      baseVersion: null,
+      payload: {
+        placementId: 1,
+        date: '2026-04-02',
+        startTime: '08:00',
+        endTime: '12:00',
+        hours: 4,
+        activity: 'Soporte',
+      },
+    }
+
+    // Simula la restricción única de Postgres sobre clientOpId: solo el primer
+    // insert para este id puede ganar; el segundo, aunque "llegue al mismo
+    // tiempo", encuentra la fila ya reservada y falla con P2002 — igual que
+    // haría la base de datos real, sin depender de timers para decidir el orden.
+    const reserved = new Set<string>()
+    prisma.syncOperation.create.mockImplementation(async ({ data }: { data: { clientOpId: string } }) => {
+      if (reserved.has(data.clientOpId)) {
+        throw { code: 'P2002' }
+      }
+      reserved.add(data.clientOpId)
+    })
+
+    let stored: unknown = null
+    prisma.syncOperation.update.mockImplementation(async ({ data }: { data: { response: unknown } }) => {
+      stored = data.response
+    })
+    prisma.syncOperation.findUnique.mockImplementation(async () => ({
+      response: stored ?? { status: 'pending' },
+    }))
+
+    const [r1, r2] = await Promise.all([service.push(5, [op]), service.push(5, [op])])
+
+    expect(prisma.hourLog.create).toHaveBeenCalledTimes(1)
+    expect(r1.results[0].status).toBe('applied')
+    expect(r2.results[0]).toMatchObject(r1.results[0])
   })
 
   // -------------------------------------------------------------------------
