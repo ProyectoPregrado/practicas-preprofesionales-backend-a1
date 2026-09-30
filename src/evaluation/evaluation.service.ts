@@ -51,7 +51,11 @@ export class EvaluationService {
     placement: Placement,
     evaluatorId: number,
   ): Promise<void> {
-    const evaluator = await this.prisma.user.findUnique({ where: { id: evaluatorId } })
+    // E3-06: solo se necesita companyId acá — no hace falta traer el usuario completo.
+    const evaluator = await this.prisma.user.findUnique({
+      where: { id: evaluatorId },
+      select: { companyId: true },
+    })
     if (dto.kind !== EvaluationKind.COMPANY || evaluator?.companyId !== placement.companyId) {
       throw new ForbiddenException('la empresa solo puede enviar su propia evaluación de tipo COMPANY')
     }
