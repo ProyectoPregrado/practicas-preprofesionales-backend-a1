@@ -34,6 +34,8 @@ máquina, cambia `POSTGRES_PORT` y `DATABASE_URL` en `.env` antes de `docker com
 | `JWT_SECRET` | (requerido) | Secreto para firmar JWTs |
 | `PORT` | `3000` | Puerto donde escucha la API |
 | `CORS_ORIGIN` | `http://localhost:5173` | Origen permitido para requests desde el navegador (frontend Vite) |
+| `JWT_EXPIRES_IN` | `15m` | Vida del access token (formato de [`ms`](https://github.com/vercel/ms), ej. `15m`, `1h`) |
+| `REFRESH_TOKEN_TTL_DAYS` | `7` | Días de vida del refresh token antes de forzar un login nuevo |
 
 Usuarios del seed (contraseña `yura1234` para todos):
 
