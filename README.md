@@ -35,6 +35,14 @@ máquina, cambia `POSTGRES_PORT` y `DATABASE_URL` en `.env` antes de `docker com
 | `PORT` | `3000` | Puerto donde escucha la API |
 | `CORS_ORIGIN` | `http://localhost:5173` | Origen permitido para requests desde el navegador (frontend Vite) |
 
+`JWT_SECRET` es obligatorio: la aplicación no arranca sin él (E3-04 / D-07). Generá uno adecuado con:
+
+```bash
+openssl rand -base64 48
+```
+
+Pegá el resultado en tu `.env` local. No reutilices el valor de ejemplo de `.env.example` fuera de tu máquina, y nunca el mismo secreto entre entornos.
+
 Usuarios del seed (contraseña `yura1234` para todos):
 
 | Rol | Email |

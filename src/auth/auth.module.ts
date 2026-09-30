@@ -4,13 +4,15 @@ import { AuthController } from './auth.controller'
 import { AuthService } from './auth.service'
 import { JwtAuthGuard } from './guards/jwt-auth.guard'
 import { RolesGuard } from './guards/roles.guard'
+import { getRequiredJwtSecret } from './jwt-secret'
 
 @Module({
   imports: [
     JwtModule.register({
       global: true,
-      // D-07: fallback hardcodeado si falta la env. Documentado en KNOWN_ISSUES.md.
-      secret: process.env.JWT_SECRET ?? 'dev-secret-no-cambiar',
+      // E3-04: sin fallback. Si falta JWT_SECRET, getRequiredJwtSecret() lanza
+      // al cargar este módulo y la aplicación no arranca (cierra D-07).
+      secret: getRequiredJwtSecret(),
     }),
   ],
   controllers: [AuthController],

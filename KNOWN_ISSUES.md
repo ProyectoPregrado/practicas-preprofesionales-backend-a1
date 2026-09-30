@@ -67,3 +67,9 @@ formulario tiene su propia versión. Nadie recuerda cuál es la correcta.
 Si la variable de entorno no está, el módulo arranca igual con un secreto por defecto que
 está en el código. Lo pusimos para no pelear con el entorno local y se quedó. En producción
 esto no puede quedar así.
+
+--- Deuda Pagada
+
+`getRequiredJwtSecret()` (`src/auth/jwt-secret.ts`) lanza al cargar el módulo si falta la
+variable — sin ella la aplicación no arranca, con un mensaje que dice cómo generarla. No
+queda ningún valor por defecto en el código (E3-04).
