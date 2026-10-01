@@ -79,6 +79,7 @@ model User {
   reviewedHourLogs  HourLog[]     @relation("HourLogReviewer")
   uploadedDocuments  Document[]   @relation("DocUploader")
   validatedDocuments Document[]   @relation("DocValidator")
+  refreshTokens      RefreshToken[]
 
   @@map("users")
 }
@@ -247,4 +248,21 @@ model SyncOperation {
 
   @@index([userId, createdAt])
   @@map("sync_operations")
+}
+
+// E3-03: guarda solo el hash del refresh token, nunca el valor en texto plano
+// (mismo criterio que password). revokedAt marcado al renovar (rotación) o al
+// cerrar sesión — es lo que permite invalidar el token anterior de verdad.
+model RefreshToken {
+  id         Int       @id @default(autoincrement())
+  tokenHash  String    @unique
+  userId     Int
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
 }
