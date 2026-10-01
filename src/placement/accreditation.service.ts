@@ -14,7 +14,9 @@ export class AccreditationService {
 
     const placements = await this.prisma.placement.findMany({
       where: { startDate: { gte: from, lt: to }, deletedAt: null },
-      include: { student: true, documents: true, evaluations: true },
+      // E3-06: `student: true` traía el usuario completo (password incluido) solo
+      // para leer el nombre. Se acota al único campo que se usa más abajo.
+      include: { student: { select: { fullName: true } }, documents: true, evaluations: true },
     })
 
     const results: AccreditationResult[] = []
