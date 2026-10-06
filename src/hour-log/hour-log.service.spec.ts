@@ -1,9 +1,16 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HourLogService } from './hour-log.service'
 
 const prisma = {
-  hourLog: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn(), aggregate: vi.fn() },
+  hourLog: {
+    create: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+    updateMany: vi.fn(),
+    findMany: vi.fn(),
+    aggregate: vi.fn(),
+  },
   placement: { findUnique: vi.fn() },
 }
 
@@ -40,12 +47,66 @@ describe('HourLogService', () => {
   })
 
   it('approves a submitted hour log', async () => {
-    prisma.hourLog.findUnique.mockResolvedValue({ id: 99, placementId: 1, status: 'SUBMITTED', version: 1 })
-    prisma.hourLog.update.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
+    prisma.hourLog.findUnique
+      .mockResolvedValueOnce({
+        id: 99,
+        placementId: 1,
+        status: 'SUBMITTED',
+        version: 1,
+        placement: { tutorId: 7 },
+      })
+      .mockResolvedValueOnce({ id: 99, status: 'APPROVED', reviewedById: 7 })
+    prisma.hourLog.updateMany.mockResolvedValue({ count: 1 })
 
     const result = await service.review(99, 'APPROVED' as never, 7, 'ok')
 
     expect(result.status).toBe('APPROVED')
     expect(result.reviewedById).toBe(7)
+    expect(prisma.hourLog.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 99,
+          status: 'SUBMITTED',
+          placement: { tutorId: 7 },
+        },
+      }),
+    )
+  })
+
+  it('rejects a tutor who attempts to review hours from another placement', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 99,
+      placementId: 1,
+      status: 'SUBMITTED',
+      version: 1,
+      placement: { tutorId: 7 },
+    })
+
+    await expect(service.review(99, 'APPROVED' as never, 8, 'no corresponde')).rejects.toThrow(
+      ForbiddenException,
+    )
+    expect(prisma.hourLog.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('E3-02: only the assigned tutor wins when two tutors review concurrently', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 99,
+      placementId: 1,
+      status: 'SUBMITTED',
+      version: 1,
+      placement: { tutorId: 7 },
+    })
+    prisma.hourLog.updateMany.mockResolvedValue({ count: 1 })
+
+    const [ownerResult] = await Promise.all([
+      service.review(99, 'APPROVED' as never, 7, 'aprobado por el tutor asignado'),
+      expect(service.review(99, 'REJECTED' as never, 8, 'tutor ajeno')).rejects.toThrow(ForbiddenException),
+    ])
+
+    expect(ownerResult).toMatchObject({ id: 99 })
+    expect(prisma.hourLog.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.hourLog.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ placement: { tutorId: 7 } }) }),
+    )
   })
 })

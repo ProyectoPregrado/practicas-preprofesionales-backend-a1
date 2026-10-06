@@ -93,13 +93,24 @@ export class HourLogService {
    * `SUBMITTED`; de ahí pasan a `APPROVED` o `REJECTED`.
    */
   async review(id: number, status: HourLogStatus, reviewerId: number, note?: string) {
-    const log = await this.prisma.hourLog.findUnique({ where: { id } })
+    const log = await this.prisma.hourLog.findUnique({
+      where: { id },
+      include: { placement: { select: { tutorId: true } } },
+    })
     if (!log) throw new NotFoundException('registro de horas no encontrado')
+    if (log.placement.tutorId !== reviewerId) {
+      throw new ForbiddenException('solo el tutor asignado al placement puede revisar sus horas')
+    }
     if (log.status !== HourLogStatus.SUBMITTED) {
       throw new BadRequestException('solo se revisan registros en SUBMITTED')
     }
-    return this.prisma.hourLog.update({
-      where: { id },
+
+    const result = await this.prisma.hourLog.updateMany({
+      where: {
+        id,
+        status: HourLogStatus.SUBMITTED,
+        placement: { tutorId: reviewerId },
+      },
       data: {
         status,
         reviewedById: reviewerId,
@@ -108,6 +119,14 @@ export class HourLogService {
         version: { increment: 1 },
       },
     })
+
+    if (result.count !== 1) {
+      throw new BadRequestException('solo se revisan registros en SUBMITTED')
+    }
+
+    const updated = await this.prisma.hourLog.findUnique({ where: { id } })
+    if (!updated) throw new NotFoundException('registro de horas no encontrado')
+    return updated
   }
 
   /**
