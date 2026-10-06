@@ -38,10 +38,30 @@ export class OfferService {
     })
   }
 
-  async findOne(id: number) {
+  /**
+   * E3-01 / H-5: una oferta publicada la ve cualquier usuario autenticado; un borrador o una oferta
+   * cerrada solo la ven la coordinación, la empresa dueña y el estudiante que ya se postuló a ella
+   * (su lista de postulaciones enlaza a la oferta aunque se haya cerrado). Lo demás responde 404,
+   * igual que una oferta inexistente, para no revelar que existe.
+   */
+  async findOne(id: number, userId: number, role: Role) {
     const offer = await this.prisma.offer.findUnique({ where: { id }, include: { company: true } })
     if (!offer) throw new NotFoundException('oferta no encontrada')
+    if (offer.status !== OfferStatus.PUBLISHED && !(await this.canSeeUnpublished(offer, userId, role))) {
+      throw new NotFoundException('oferta no encontrada')
+    }
     return offer
+  }
+
+  private async canSeeUnpublished(offer: { id: number; companyId: number }, userId: number, role: Role): Promise<boolean> {
+    if (role === Role.COORDINATOR) return true
+    if (role === Role.COMPANY) return (await this.companyIdOf(userId)) === offer.companyId
+    if (role !== Role.STUDENT) return false
+    const application = await this.prisma.application.findFirst({
+      where: { offerId: offer.id, studentId: userId },
+      select: { id: true },
+    })
+    return application !== null
   }
 
   // Ofertas de la empresa del usuario autenticado, en cualquier estado —

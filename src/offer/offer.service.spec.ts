@@ -5,7 +5,7 @@ import { OfferService } from './offer.service'
 
 const prisma = {
   offer: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn(), findMany: vi.fn() },
-  application: { count: vi.fn() },
+  application: { count: vi.fn(), findFirst: vi.fn() },
   user: { findUnique: vi.fn() },
 }
 
@@ -14,6 +14,8 @@ const OWNER = 50
 const FOREIGN = 60
 const COMPANY_LESS = 70
 const COORDINATOR = 99
+const STUDENT = 10
+const TUTOR = 80
 const OFFER_COMPANY = 5
 const usersById: Record<number, { companyId: number | null }> = {
   [OWNER]: { companyId: OFFER_COMPANY },
@@ -204,5 +206,78 @@ describe('OfferService — pertenencia de la empresa (H-4)', () => {
       expect(byUser[OWNER].status).toBe('fulfilled')
       expect(prisma.offer.update).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// E3-01 / H-5 (issue #14): un borrador o una oferta cerrada no se filtran a quien no corresponde.
+describe('OfferService — visibilidad de una oferta (H-5)', () => {
+  let service: OfferService
+
+  const offerWith = (status: string) => ({ id: 1, companyId: OFFER_COMPANY, status, company: { id: OFFER_COMPANY } })
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    service = new OfferService(prisma as never)
+    prisma.user.findUnique.mockImplementation(({ where }) => Promise.resolve(usersById[where.id] ?? null))
+    prisma.application.findFirst.mockResolvedValue(null)
+  })
+
+  it.each([Role.STUDENT, Role.TUTOR, Role.COMPANY, Role.COORDINATOR])(
+    'una oferta publicada la ve el rol %s, sin consultas extra',
+    async (role) => {
+      prisma.offer.findUnique.mockResolvedValue(offerWith('PUBLISHED'))
+
+      const result = await service.findOne(1, FOREIGN, role)
+
+      expect(result.id).toBe(1)
+      expect(prisma.user.findUnique).not.toHaveBeenCalled()
+      expect(prisma.application.findFirst).not.toHaveBeenCalled()
+    },
+  )
+
+  describe.each(['DRAFT', 'CLOSED'])('oferta en %s', (status) => {
+    beforeEach(() => {
+      prisma.offer.findUnique.mockResolvedValue(offerWith(status))
+    })
+
+    it('la ve la empresa dueña', async () => {
+      await expect(service.findOne(1, OWNER, Role.COMPANY)).resolves.toMatchObject({ id: 1 })
+    })
+
+    it('la ve la coordinación', async () => {
+      await expect(service.findOne(1, COORDINATOR, Role.COORDINATOR)).resolves.toMatchObject({ id: 1 })
+    })
+
+    it('responde 404 a otra empresa', async () => {
+      await expect(service.findOne(1, FOREIGN, Role.COMPANY)).rejects.toThrow(NotFoundException)
+    })
+
+    it('responde 404 a un usuario COMPANY sin empresa asociada', async () => {
+      await expect(service.findOne(1, COMPANY_LESS, Role.COMPANY)).rejects.toThrow(NotFoundException)
+    })
+
+    it('responde 404 a un estudiante que no se postuló, y no un 403 que revele que existe', async () => {
+      await expect(service.findOne(1, STUDENT, Role.STUDENT)).rejects.toThrow(NotFoundException)
+      expect(prisma.application.findFirst).toHaveBeenCalledWith({
+        where: { offerId: 1, studentId: STUDENT },
+        select: { id: true },
+      })
+    })
+
+    it('la ve el estudiante que ya se postuló a ella', async () => {
+      prisma.application.findFirst.mockResolvedValue({ id: 7 })
+
+      await expect(service.findOne(1, STUDENT, Role.STUDENT)).resolves.toMatchObject({ id: 1 })
+    })
+
+    it('responde 404 a un tutor', async () => {
+      await expect(service.findOne(1, TUTOR, Role.TUTOR)).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  it('responde 404 si la oferta no existe', async () => {
+    prisma.offer.findUnique.mockResolvedValue(null)
+
+    await expect(service.findOne(999, STUDENT, Role.STUDENT)).rejects.toThrow(NotFoundException)
   })
 })
