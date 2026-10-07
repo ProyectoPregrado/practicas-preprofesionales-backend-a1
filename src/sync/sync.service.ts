@@ -57,33 +57,72 @@ export class SyncService {
   async push(userId: number, ops: SyncOperationInput[]) {
     const results: SyncOperationResult[] = []
     for (const op of ops) {
-      // D-01: consultar sync_operations ANTES de aplicar — si ya se procesó
-      // este clientOpId, devolver el resultado anterior sin re-aplicar.
-      const existing = await this.prisma.syncOperation.findUnique({
-        where: { clientOpId: op.clientOpId },
-      })
-      if (existing) {
-        results.push(existing.response as unknown as SyncOperationResult)
-        continue
-      }
-
-      let result: SyncOperationResult
-      try {
-        result = await this.applyOperation(userId, op)
-      } catch (err) {
-        result = {
-          clientOpId: op.clientOpId,
-          status: 'rejected',
-          server: null,
-          reason: err instanceof Error ? err.message : 'no se pudo aplicar la operación',
-        }
-      }
-      await this.prisma.syncOperation.create({
-        data: { clientOpId: op.clientOpId, userId, response: result as unknown as object },
-      })
-      results.push(result)
+      results.push(await this.applyIdempotent(userId, op))
     }
     return { results }
+  }
+
+  // D-01 / E1-03b: la exclusividad del clientOpId la da el insert en la base,
+  // no una lectura previa. `findUnique` + `create` en dos pasos deja una ventana
+  // donde dos envíos concurrentes con el mismo clientOpId pasan ambos el chequeo
+  // y aplican la operación dos veces. Reservamos el clientOpId con un insert
+  // atómico ANTES de aplicar: quien pierde la carrera por la restricción única
+  // (P2002) no reintenta la operación, espera el resultado real del que ganó.
+  private async applyIdempotent(userId: number, op: SyncOperationInput): Promise<SyncOperationResult> {
+    const pending = { clientOpId: op.clientOpId, status: 'pending', server: null, reason: null }
+
+    try {
+      await this.prisma.syncOperation.create({
+        data: { clientOpId: op.clientOpId, userId, response: pending as unknown as object },
+      })
+    } catch (err) {
+      if (this.isUniqueConstraintViolation(err)) {
+        return this.awaitResolvedResult(op.clientOpId)
+      }
+      throw err
+    }
+
+    let result: SyncOperationResult
+    try {
+      result = await this.applyOperation(userId, op)
+    } catch (err) {
+      result = {
+        clientOpId: op.clientOpId,
+        status: 'rejected',
+        server: null,
+        reason: err instanceof Error ? err.message : 'no se pudo aplicar la operación',
+      }
+    }
+
+    await this.prisma.syncOperation.update({
+      where: { clientOpId: op.clientOpId },
+      data: { response: result as unknown as object },
+    })
+    return result
+  }
+
+  private isUniqueConstraintViolation(err: unknown): boolean {
+    return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2002'
+  }
+
+  // Espera a que la operación que ganó la carrera termine de escribir su
+  // resultado real (nunca re-aplica la operación). El polling usa timers de
+  // backoff fijo — no depende de suerte de scheduling: en JS los microtasks de
+  // quien ganó siempre drenan antes de que este timer dispare.
+  private async awaitResolvedResult(
+    clientOpId: string,
+    attempts = 40,
+    delayMs = 25,
+  ): Promise<SyncOperationResult> {
+    for (let i = 0; i < attempts; i++) {
+      const row = await this.prisma.syncOperation.findUnique({ where: { clientOpId } })
+      const response = row?.response as unknown as { status: string } | undefined
+      if (response && response.status !== 'pending') {
+        return response as unknown as SyncOperationResult
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+    throw new Error(`tiempo de espera agotado esperando el resultado de la operación ${clientOpId}`)
   }
 
 private async applyOperation(userId: number, op: SyncOperationInput): Promise<SyncOperationResult> {

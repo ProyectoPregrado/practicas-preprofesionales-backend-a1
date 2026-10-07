@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { ApplicationStatus, OfferStatus } from '@prisma/client'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { ApplicationStatus, OfferStatus, Role } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateOfferDto } from './dto/create-offer.dto'
 
@@ -7,7 +7,26 @@ import type { CreateOfferDto } from './dto/create-offer.dto'
 export class OfferService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateOfferDto) {
+  // El JWT no trae `companyId` (solo `sub` y `role`), así que se lee del usuario.
+  private async companyIdOf(userId: number): Promise<number | null> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { companyId: true } })
+    return user?.companyId ?? null
+  }
+
+  /**
+   * E3-01 / H-4: crear, publicar o cerrar una oferta solo lo hace la coordinación o la empresa
+   * a la que pertenece. Vive en el servicio, no en el controlador, para que llamarlo directo con
+   * una empresa ajena también falle.
+   */
+  private async assertCompanyAccess(companyId: number, userId: number, role: Role, message: string): Promise<void> {
+    if (role === Role.COORDINATOR) return
+    if (role !== Role.COMPANY || (await this.companyIdOf(userId)) !== companyId) {
+      throw new ForbiddenException(message)
+    }
+  }
+
+  async create(dto: CreateOfferDto, userId: number, role: Role) {
+    await this.assertCompanyAccess(dto.companyId, userId, role, 'solo puedes crear ofertas a nombre de tu empresa')
     return this.prisma.offer.create({ data: { ...dto, status: OfferStatus.DRAFT } })
   }
 
@@ -19,10 +38,30 @@ export class OfferService {
     })
   }
 
-  async findOne(id: number) {
+  /**
+   * E3-01 / H-5: una oferta publicada la ve cualquier usuario autenticado; un borrador o una oferta
+   * cerrada solo la ven la coordinación, la empresa dueña y el estudiante que ya se postuló a ella
+   * (su lista de postulaciones enlaza a la oferta aunque se haya cerrado). Lo demás responde 404,
+   * igual que una oferta inexistente, para no revelar que existe.
+   */
+  async findOne(id: number, userId: number, role: Role) {
     const offer = await this.prisma.offer.findUnique({ where: { id }, include: { company: true } })
     if (!offer) throw new NotFoundException('oferta no encontrada')
+    if (offer.status !== OfferStatus.PUBLISHED && !(await this.canSeeUnpublished(offer, userId, role))) {
+      throw new NotFoundException('oferta no encontrada')
+    }
     return offer
+  }
+
+  private async canSeeUnpublished(offer: { id: number; companyId: number }, userId: number, role: Role): Promise<boolean> {
+    if (role === Role.COORDINATOR) return true
+    if (role === Role.COMPANY) return (await this.companyIdOf(userId)) === offer.companyId
+    if (role !== Role.STUDENT) return false
+    const application = await this.prisma.application.findFirst({
+      where: { offerId: offer.id, studentId: userId },
+      select: { id: true },
+    })
+    return application !== null
   }
 
   // Ofertas de la empresa del usuario autenticado, en cualquier estado —
@@ -39,9 +78,11 @@ export class OfferService {
     })
   }
 
-  async publish(id: number) {
+  async publish(id: number, userId: number, role: Role) {
     const offer = await this.prisma.offer.findUnique({ where: { id } })
     if (!offer) throw new NotFoundException('oferta no encontrada')
+    // Antes que las reglas de estado: una empresa ajena recibe 403, no un 400 que revele el estado.
+    await this.assertCompanyAccess(offer.companyId, userId, role, 'la oferta no es de tu empresa')
     if (offer.status !== OfferStatus.DRAFT) {
       throw new BadRequestException('solo se publican ofertas en DRAFT')
     }
@@ -51,9 +92,10 @@ export class OfferService {
     })
   }
 
-  async close(id: number) {
+  async close(id: number, userId: number, role: Role) {
     const offer = await this.prisma.offer.findUnique({ where: { id } })
     if (!offer) throw new NotFoundException('oferta no encontrada')
+    await this.assertCompanyAccess(offer.companyId, userId, role, 'la oferta no es de tu empresa')
     if (offer.status !== OfferStatus.PUBLISHED) {
       throw new BadRequestException('solo se cierran ofertas publicadas')
     }

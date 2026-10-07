@@ -91,6 +91,18 @@ describe('EvaluationService', () => {
     expect(prisma.evaluation.create).toHaveBeenCalledTimes(1)
   })
 
+  it('E3-06: al verificar el evaluador solo consulta companyId, nunca el usuario completo', async () => {
+    prisma.placement.findUnique.mockResolvedValue({ ...placement, companyId: 3 })
+    prisma.user.findUnique.mockResolvedValue({ companyId: 3 })
+
+    await service.submit({ ...validDto, kind: EvaluationKind.COMPANY }, 30, Role.COMPANY)
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 30 },
+      select: { companyId: true },
+    })
+  })
+
   it('una empresa no puede enviar una evaluación de tipo TUTOR', async () => {
     prisma.placement.findUnique.mockResolvedValue({ ...placement, companyId: 3 })
     prisma.user.findUnique.mockResolvedValue({ id: 30, companyId: 3 })
