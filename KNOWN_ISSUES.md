@@ -73,3 +73,16 @@ esto no puede quedar así.
 `getRequiredJwtSecret()` (`src/auth/jwt-secret.ts`) lanza al cargar el módulo si falta la
 variable — sin ella la aplicación no arranca, con un mensaje que dice cómo generarla. No
 queda ningún valor por defecto en el código (E3-04).
+
+## D-11 · El seed deja casi todas las ofertas con más aceptadas que cupos
+
+`prisma/seed.ts`
+
+El seed da a cada oferta entre 2 y 5 cupos (`seats: 2 + nextInt(4)`) y después reparte las 200
+postulaciones `ACCEPTED` entre las 36 ofertas, unas 5 por oferta. Resultado: 36 de las 37 ofertas
+nacen con más aceptadas que cupos. Pasa a ojos cerrados porque el seed inserta las postulaciones ya
+aceptadas, sin pasar por `decide`.
+
+Efecto práctico: ninguna de esas ofertas admite una aceptación nueva (el trigger de E2-02 la
+rechaza, con razón), y el trigger **no** protege el `INSERT` justamente por este seed. Hay que
+corregir el seed para que respete los cupos y entonces proteger también el `INSERT`.
