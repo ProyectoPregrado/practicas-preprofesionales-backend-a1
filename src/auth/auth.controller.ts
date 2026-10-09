@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common'
+import { Body, Controller, HttpCode, Post } from '@nestjs/common'
 import { AuthService } from './auth.service'
 import { LoginDto } from './dto/login.dto'
 import { RefreshDto } from './dto/refresh.dto'
@@ -16,5 +16,12 @@ export class AuthController {
   @Post('refresh')
   refresh(@Body() dto: RefreshDto) {
     return this.auth.refresh(dto.refreshToken)
+  }
+
+  // T-2: cerrar sesión revoca el refresh token en el servidor.
+  @Post('logout')
+  @HttpCode(204)
+  logout(@Body() dto: RefreshDto) {
+    return this.auth.logout(dto.refreshToken)
   }
 }
