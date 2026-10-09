@@ -73,6 +73,15 @@ export class AuthService {
     })
   }
 
+  // T-2: cerrar sesión revoca el refresh token presentado. Es idempotente y no revela si el token
+  // existía: un token desconocido o ya revocado simplemente no coincide con ninguna fila.
+  async logout(refreshToken: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { tokenHash: hashRefreshToken(refreshToken), revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+  }
+
   private async issueSession(user: SessionUser) {
     const accessToken = await this.jwt.signAsync(
       { sub: user.id, email: user.email, role: user.role },
