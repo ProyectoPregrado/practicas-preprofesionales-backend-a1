@@ -171,8 +171,10 @@ muestra. Si ambos lados están en `DRAFT` o `SUBMITTED`, gana el más reciente.
 Si es tu primer día en este proyecto:
 
 1. Levanta el stack y confirma que `GET /api/offers` responde con las ofertas del seed.
-   Todos los endpoints salvo `POST /api/auth/login` exigen JWT: loguéate con un usuario
-   del seed y manda el `accessToken` como `Authorization: Bearer <token>`.
+   Todos los endpoints salvo los de sesión (`POST /api/auth/login`, `/api/auth/refresh` y
+   `/api/auth/logout`) exigen JWT: loguéate con un usuario del seed y manda el `accessToken`
+   como `Authorization: Bearer <token>`. `refresh` renueva la sesión con el `refreshToken` y
+   `logout` lo revoca (responde 204, también si el token ya estaba revocado).
 2. **Lee `KNOWN_ISSUES.md` completo.** El equipo anterior dejó problemas conocidos
    documentados ahí. No todos están documentados.
 3. Todavía no hay un backlog público de épicas: prioriza según lo que bloquee tu propio
