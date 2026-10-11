@@ -1,5 +1,7 @@
 # E2-01 — Demostración del sobrecupo
 
+> **Estado:** cerrado por E2-02 (`docs/E2-02-cupos.md`). Este informe describe el spike tal como se hizo: los tests que acá documentan que "ambas pasan" ahora afirman la invariante.
+
 ## Qué se demuestra
 Con una oferta de **una sola plaza libre**, dos aceptaciones simultáneas pasan **las dos** y la oferta queda con 2 postulaciones `ACCEPTED`. Se rompe la regla "las postulaciones aceptadas de una oferta no superan sus cupos (`seats`)".
 
