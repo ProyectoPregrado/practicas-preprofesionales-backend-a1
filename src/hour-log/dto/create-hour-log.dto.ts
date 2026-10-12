@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer'
 import { IsDate, IsInt, IsString, Matches, Max, MaxLength, Min } from 'class-validator'
+import { MIN_HOURS_PER_LOG, getMaxHoursPerDay, hoursRangeMessage } from '../hour-rules'
 
 export class CreateHourLogDto {
   @IsInt() placementId!: number
@@ -10,8 +11,10 @@ export class CreateHourLogDto {
 
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) endTime!: string
 
-  // D-06 (copia 1): tope 12.
-  @Min(0.5) @Max(12) hours!: number
+  // E6-01: el rango sale de hour-rules.ts, igual que en el servicio, el sync y la exportación.
+  @Min(MIN_HOURS_PER_LOG, { message: hoursRangeMessage() })
+  @Max(getMaxHoursPerDay(), { message: hoursRangeMessage() })
+  hours!: number
 
   @IsString() @MaxLength(500) activity!: string
 }

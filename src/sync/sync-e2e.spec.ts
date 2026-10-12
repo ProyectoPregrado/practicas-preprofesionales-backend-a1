@@ -155,6 +155,12 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
     }
   });
 
+  // E6-01: con el tope de 8 horas por día, los fixtures que deja una corrida fallida (misma fecha, mismo
+  // estudiante) harían fallar las siguientes; se limpian antes de cada prueba.
+  beforeEach(async () => {
+    if (prisma) await prisma.hourLog.deleteMany({ where: { activity: { contains: 'para test E1-04' } } });
+  });
+
   it('/sync/push (POST) - E1-04 rechaza edición offline de hora APPROVED', async () => {
     if (!prisma) return; // skip si no hay DB
 
