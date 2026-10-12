@@ -36,6 +36,7 @@ máquina, cambia `POSTGRES_PORT` y `DATABASE_URL` en `.env` antes de `docker com
 | `CORS_ORIGIN` | `http://localhost:5173` | Origen permitido para requests desde el navegador (frontend Vite) |
 | `JWT_EXPIRES_IN` | `15m` | Vida del access token (formato de [`ms`](https://github.com/vercel/ms), ej. `15m`, `1h`) |
 | `REFRESH_TOKEN_TTL_DAYS` | `7` | Días de vida del refresh token antes de forzar un login nuevo |
+| `MAX_HOURS_PER_DAY` | `8` | Tope de horas por día: suma de todos los registros del estudiante en esa fecha (decisión de la coordinación, igual para todas las carreras) |
 
 `JWT_SECRET` es obligatorio: la aplicación no arranca sin él (E3-04 / D-07). Generá uno adecuado con:
 

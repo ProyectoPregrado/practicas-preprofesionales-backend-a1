@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HourLogService } from './hour-log.service'
 
 const prisma = {
+  $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+  $executeRaw: vi.fn(),
   hourLog: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -25,6 +27,7 @@ describe('HourLogService', () => {
   it('creates an hour log in SUBMITTED for an active placement', async () => {
     prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
     prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
 
     const result = await service.create(
       { placementId: 1, date: new Date('2026-04-01'), startTime: '08:00', endTime: '12:00', hours: 4, activity: 'Desarrollo de módulo de reportes' },
@@ -33,6 +36,52 @@ describe('HourLogService', () => {
 
     expect(result.status).toBe('SUBMITTED')
     expect(result.hours).toBe(4)
+  })
+
+  // E6-01: el tope es 8 horas por día, sumando todos los registros del estudiante en esa fecha.
+  describe('E6-01 — tope de horas por día', () => {
+    const dto = (hours: number) => ({
+      placementId: 1,
+      date: new Date('2026-04-01'),
+      startTime: '08:00',
+      endTime: '18:00',
+      hours,
+      activity: 'Jornada de práctica',
+    })
+
+    beforeEach(() => {
+      prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
+      prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
+    })
+
+    it('acepta un registro de exactamente 8 horas', async () => {
+      await expect(service.create(dto(8), 5)).resolves.toMatchObject({ hours: 8 })
+    })
+
+    it('rechaza un registro de 8.5 horas con el mensaje del rango', async () => {
+      await expect(service.create(dto(8.5), 5)).rejects.toThrow(/entre 0\.5 y 8/)
+      expect(prisma.hourLog.create).not.toHaveBeenCalled()
+    })
+
+    it('rechaza si, sumado a lo ya registrado ese día, pasa de 8 horas', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 6 } })
+
+      await expect(service.create(dto(3), 5)).rejects.toThrow(/no puede superar 8 horas \(ya tienes 6 registradas el 2026-04-01\)/)
+      expect(prisma.hourLog.create).not.toHaveBeenCalled()
+    })
+
+    it('permite completar el día justo en 8 horas (6 ya registradas + 2)', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 6 } })
+
+      await expect(service.create(dto(2), 5)).resolves.toMatchObject({ hours: 2 })
+    })
+
+    it('valida y escribe dentro del bloqueo por estudiante', async () => {
+      await service.create(dto(2), 5)
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('rejects an hour log with more hours than the service allows', async () => {

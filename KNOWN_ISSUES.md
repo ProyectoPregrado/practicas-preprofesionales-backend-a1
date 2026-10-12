@@ -60,6 +60,14 @@ del frontend.
 Y ya divergieron: el DTO acepta hasta 12 horas por registro y el servicio corta en 10. El
 formulario tiene su propia versión. Nadie recuerda cuál es la correcta.
 
+--- Deuda Pagada (backend)
+
+La coordinación definió el tope: **8 horas por día**, sumando todos los registros del estudiante en
+esa fecha, igual para todas las carreras y períodos. La regla vive ahora en un solo lugar,
+`src/hour-log/hour-rules.ts` (configurable con `MAX_HOURS_PER_DAY`), y la usan el DTO, el servicio, la
+exportación y el sync, con el mismo mensaje (E6-01). Falta el formulario del frontend, que sigue con
+su propia copia.
+
 ## D-07 · `JWT_SECRET` tiene un fallback hardcodeado
 
 `src/auth/auth.module.ts`
