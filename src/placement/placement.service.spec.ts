@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { PlacementService } from './placement.service'
 
 const prisma = {
@@ -40,5 +41,22 @@ describe('PlacementService.activate', () => {
     })
 
     await expect(service.activate(1)).rejects.toThrow(BadRequestException)
+  })
+})
+
+// H-6 (T-4): la plaza propia trae la empresa sin NIT ni correo de contacto.
+describe('PlacementService.findForStudent (H-6)', () => {
+  it('incluye solo los campos públicos de la empresa', async () => {
+    vi.clearAllMocks()
+    prisma.placement.findFirst.mockResolvedValue(null)
+    const service = new PlacementService(prisma as never)
+
+    await service.findForStudent(10)
+
+    expect(prisma.placement.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({ company: { select: PUBLIC_COMPANY_SELECT } }),
+      }),
+    )
   })
 })
