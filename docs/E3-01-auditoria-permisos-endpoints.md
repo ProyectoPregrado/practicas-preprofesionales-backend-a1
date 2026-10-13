@@ -33,7 +33,7 @@ además de su rol.
 |---|---|---|---|---|---|
 | 1 | `POST /auth/login` | público | n/a | Sin guards, es la puerta de entrada. | OK |
 | 2 | `POST /auth/refresh` | público (refresh token) | n/a | El token de renovación identifica al usuario (`auth.service.ts:44`). | OK |
-| 3 | `GET /companies` | cualquier autenticado | n/a (catálogo) | Sin `@Roles`. Devuelve `findMany()` completo: `taxId`, `contactEmail`, `verified`. | **Revisar** — H-6 |
+| 3 | `GET /companies` | cualquier autenticado | n/a (catálogo) | Sin `@Roles`. Devuelve `findMany()` completo: `taxId`, `contactEmail`, `verified`. | ~~Revisar~~ **Resuelto** — H-6 (T-4) |
 | 4 | `POST /companies` | COORDINATOR | n/a | `@Roles(COORDINATOR)`. | OK |
 | 5 | `GET /offers` | cualquier autenticado | n/a (catálogo) | Solo `PUBLISHED` (`offer.service.ts:14`). | OK |
 | 6 | `GET /offers/me` | COMPANY | **Sí** | Filtra por el `companyId` del usuario del token (`offer.service.ts:32`). | OK |
@@ -179,8 +179,12 @@ curl -s $BASE/companies -H "Authorization: Bearer $S0" | head -c 400
 Esperado si expone datos: la respuesta incluye `taxId` y `contactEmail`.
 
 **Verificado: expone datos.** `estudiante0` recibe de todas las empresas `taxId`, `contactEmail` y
-`verified` (por ejemplo `"taxId":"1790000000001","contactEmail":"rrhh@empresa0.com"`). Decisión
-pendiente del equipo: acotar con `select` o dejarlo documentado como aceptado.
+`verified` (por ejemplo `"taxId":"1790000000001","contactEmail":"rrhh@empresa0.com"`). **Resuelto (T-4).** Se decidió acotar. `GET /companies` devuelve `id`, `name`, `sector`, `verified` y
+`createdAt` a estudiantes, tutores y empresas; la coordinación conserva el listado completo (necesita
+el `taxId` para registrar empresas). El frontend solo usa `id` y `name`. La misma exposición existía
+por `include: { company: true }` en `GET /offers`, `GET /offers/:id` y `GET /applications/me`, y se
+acotó con el mismo `select` (`src/company/company.select.ts`). Comprobado con `curl`: el estudiante ya
+no recibe `taxId` ni `contactEmail` en ninguno de los cuatro; la coordinación sigue viéndolos.
 
 ### Limpieza
 
