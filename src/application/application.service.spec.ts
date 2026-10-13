@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { ApplicationStatus, Role } from '@prisma/client'
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ApplicationStatus, Prisma, Role } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { ApplicationService } from './application.service'
@@ -309,5 +309,52 @@ describe('ApplicationService — datos públicos de la empresa (H-6)', () => {
         include: { offer: { include: { company: { select: PUBLIC_COMPANY_SELECT } } } },
       }),
     )
+  })
+})
+
+// N-2: postularse exige una oferta publicada y no se puede repetir.
+describe('ApplicationService.apply (N-2)', () => {
+  let service: ApplicationService
+  const MOTIVATION = 'Motivación de prueba con más de veinte caracteres'
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    service = new ApplicationService(prisma as never, offers as never)
+    prisma.offer.findUnique.mockResolvedValue({ status: 'PUBLISHED' })
+    prisma.application.create.mockImplementation(({ data }) => Promise.resolve({ id: 1, ...data }))
+  })
+
+  it('crea la postulación SUBMITTED cuando la oferta está publicada', async () => {
+    const result = await service.apply(1, 10, MOTIVATION)
+
+    expect(result).toMatchObject({ offerId: 1, studentId: 10, status: 'SUBMITTED' })
+  })
+
+  it('responde 404 si la oferta no existe, sin crear nada', async () => {
+    prisma.offer.findUnique.mockResolvedValue(null)
+
+    await expect(service.apply(999, 10, MOTIVATION)).rejects.toThrow(NotFoundException)
+    expect(prisma.application.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['DRAFT', 'CLOSED'])('responde 404 si la oferta está en %s, sin crear nada', async (status) => {
+    prisma.offer.findUnique.mockResolvedValue({ status })
+
+    await expect(service.apply(1, 10, MOTIVATION)).rejects.toThrow(NotFoundException)
+    expect(prisma.application.create).not.toHaveBeenCalled()
+  })
+
+  it('responde 409 si la restricción única rechaza la postulación repetida', async () => {
+    prisma.application.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicada', { code: 'P2002', clientVersion: 'test' }),
+    )
+
+    await expect(service.apply(1, 10, MOTIVATION)).rejects.toThrow(ConflictException)
+  })
+
+  it('no disfraza de 409 otros errores de la base', async () => {
+    prisma.application.create.mockRejectedValue(new Error('conexión perdida'))
+
+    await expect(service.apply(1, 10, MOTIVATION)).rejects.toThrow('conexión perdida')
   })
 })
