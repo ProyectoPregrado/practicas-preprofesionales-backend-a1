@@ -182,9 +182,9 @@ Esperado si expone datos: la respuesta incluye `taxId` y `contactEmail`.
 `verified` (por ejemplo `"taxId":"1790000000001","contactEmail":"rrhh@empresa0.com"`). **Resuelto (T-4).** Se decidió acotar. `GET /companies` devuelve `id`, `name`, `sector`, `verified` y
 `createdAt` a estudiantes, tutores y empresas; la coordinación conserva el listado completo (necesita
 el `taxId` para registrar empresas). El frontend solo usa `id` y `name`. La misma exposición existía
-por `include: { company: true }` en `GET /offers`, `GET /offers/:id` y `GET /applications/me`, y se
-acotó con el mismo `select` (`src/company/company.select.ts`). Comprobado con `curl`: el estudiante ya
-no recibe `taxId` ni `contactEmail` en ninguno de los cuatro; la coordinación sigue viéndolos.
+por `include: { company: true }` en `GET /offers`, `GET /offers/:id`, `GET /applications/me` y
+`GET /placements/me`, y se acotó con el mismo `select` (`src/company/company.select.ts`). Comprobado con `curl`: el estudiante ya
+no recibe `taxId` ni `contactEmail` en ninguno de los cinco; la coordinación sigue viéndolos.
 
 ### Limpieza
 
