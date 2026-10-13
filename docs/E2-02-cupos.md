@@ -15,9 +15,9 @@ La historia pide elegir entre una transacción con bloqueo de fila y una restric
 El chequeo de `decide` (`acceptedCount`) se **mantiene solo como atajo** para fallar sin escribir. Ya no es la garantía: entre esa lectura y el `UPDATE` sigue existiendo la ventana (E2-01), y el trigger es lo que la cierra. Es el mismo principio de E1-03b, E3-02 y E3-03: la exclusividad la da la base, no una lectura previa.
 
 ## Alcance del trigger (a propósito)
-- **Protege las transiciones a `ACCEPTED`** (`BEFORE UPDATE OF status, offerId`), la única vía del producto.
+- **Protege las transiciones a `ACCEPTED` y los `INSERT` con `ACCEPTED`** (`BEFORE INSERT OR UPDATE OF status, offerId`). Los `INSERT` se protegieron en D-11 (migración `enforce_offer_seats_on_insert`); al inicio solo cubría los `UPDATE`.
 - **No bloquea reescribir una aceptada que sigue aceptada**, para no romper ofertas que hoy ya están llenas.
-- **No protege los `INSERT` directos con `ACCEPTED`.** `prisma/seed.ts` los usa, y el seed deja **36 de 37 ofertas con más aceptadas que cupos** (cupos de 2 a 5 con unas 5 postulaciones aceptadas cada una). Bloquear el `INSERT` rompería `pnpm db:seed`. Ninguna ruta de la aplicación inserta postulaciones aceptadas (`apply` crea `SUBMITTED`).
+- **Datos anteriores sobrecupados no se tocan**: la migración de D-11 no modifica filas existentes; solo evita que nazcan nuevas.
 - **Liberar un cupo funciona**: pasar la aceptada a `WITHDRAWN`/`REJECTED` deja aceptar a otra.
 
 ## Cómo se prueba
@@ -26,9 +26,12 @@ El chequeo de `decide` (`acceptedCount`) se **mantiene solo como atajo** para fa
 - Con 1 plaza y 2 aceptaciones simultáneas: exactamente una pasa, 3 repeticiones; la otra recibe `BadRequestException('la oferta ya no tiene cupos')`.
 - Con 2 plazas pasan las dos (aceptar sigue funcionando con cupos de sobra).
 - **`UPDATE` directo con Prisma, saltándose los servicios: la base lo rechaza** (`offer_full`).
+- **`INSERT` directo con `ACCEPTED` (D-11)**: dentro del cupo pasa; si lo supera, `offer_full`; un `INSERT` que no es `ACCEPTED` nunca consume cupo.
 - Una aceptada que se reescribe no se bloquea; liberar un cupo permite aceptar a la otra.
 - Estable: 5 corridas seguidas. La migración y el seed se verificaron desde cero en una base temporal.
 
+## El seed respeta los cupos (D-11)
+`prisma/seed.ts` reparte las 200 postulaciones `ACCEPTED` con `i % totalOffers` y fija `seats = aceptadas de esa oferta + nextInt(3)`. Resultado: 36 ofertas, ninguna sobrecupada, 9 llenas y el resto con 1 o 2 plazas libres (cupos de 5 a 8). Mismos conteos y credenciales que antes.
+
 ## Pendiente
-- **Corregir el seed** para que respete los cupos (hoy nace sobrecupado) y entonces proteger también el `INSERT`. Queda anotado como D-11 en `KNOWN_ISSUES.md`.
 - `decide` sigue leyendo el estado de la postulación y escribiendo después: dos decisiones simultáneas **sobre la misma postulación** pueden pisarse. No es sobrecupo; queda como seguimiento.

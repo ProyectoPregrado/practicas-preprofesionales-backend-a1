@@ -92,5 +92,12 @@ nacen con más aceptadas que cupos. Pasa a ojos cerrados porque el seed inserta 
 aceptadas, sin pasar por `decide`.
 
 Efecto práctico: ninguna de esas ofertas admite una aceptación nueva (el trigger de E2-02 la
-rechaza, con razón), y el trigger **no** protege el `INSERT` justamente por este seed. Hay que
-corregir el seed para que respete los cupos y entonces proteger también el `INSERT`.
+rechaza, con razón), y el trigger **no** protege el `INSERT` justamente por este seed.
+
+--- Deuda Pagada
+
+El seed calcula primero cuántas aceptadas recibe cada oferta y fija `seats` = aceptadas + 0 a 2
+libres, así que ninguna oferta nace sobrecupada (conteos y credenciales sin cambios). Con eso, la
+migración `enforce_offer_seats_on_insert` extiende el trigger a `BEFORE INSERT OR UPDATE`: un
+`INSERT` con `ACCEPTED` que supere los cupos falla con `offer_full`. Los datos ya sobrecupados en
+bases existentes no se tocan (D-11).
