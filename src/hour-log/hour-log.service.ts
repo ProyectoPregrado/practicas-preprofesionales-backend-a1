@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HourLogStatus, PlacementStatus, Role } from '@prisma/client'
 import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
+import { completePlacementIfReached, withPlacementApprovalLock } from './placement-completion'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateHourLogDto } from './dto/create-hour-log.dto'
 
@@ -105,24 +106,30 @@ export class HourLogService {
       throw new BadRequestException('solo se revisan registros en SUBMITTED')
     }
 
-    const result = await this.prisma.hourLog.updateMany({
-      where: {
-        id,
-        status: HourLogStatus.SUBMITTED,
-        placement: { tutorId: reviewerId },
-      },
-      data: {
-        status,
-        reviewedById: reviewerId,
-        reviewedAt: new Date(),
-        reviewNote: note,
-        version: { increment: 1 },
-      },
-    })
+    // N-3: la revisión y el posible cierre de la plaza van en una transacción bajo el bloqueo de la plaza,
+    // para que la suma de horas aprobadas incluya siempre las aprobaciones previas.
+    await withPlacementApprovalLock(this.prisma, log.placementId, async (tx) => {
+      const result = await tx.hourLog.updateMany({
+        where: {
+          id,
+          status: HourLogStatus.SUBMITTED,
+          placement: { tutorId: reviewerId },
+        },
+        data: {
+          status,
+          reviewedById: reviewerId,
+          reviewedAt: new Date(),
+          reviewNote: note,
+          version: { increment: 1 },
+        },
+      })
 
-    if (result.count !== 1) {
-      throw new BadRequestException('solo se revisan registros en SUBMITTED')
-    }
+      if (result.count !== 1) {
+        throw new BadRequestException('solo se revisan registros en SUBMITTED')
+      }
+
+      if (status === HourLogStatus.APPROVED) await completePlacementIfReached(tx, log.placementId)
+    })
 
     const updated = await this.prisma.hourLog.findUnique({ where: { id } })
     if (!updated) throw new NotFoundException('registro de horas no encontrado')
