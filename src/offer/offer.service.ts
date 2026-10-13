@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { ApplicationStatus, OfferStatus, Role } from '@prisma/client'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateOfferDto } from './dto/create-offer.dto'
 
@@ -34,7 +35,7 @@ export class OfferService {
     return this.prisma.offer.findMany({
       where: { status: OfferStatus.PUBLISHED },
       orderBy: { publishedAt: 'desc' },
-      include: { company: true },
+      include: { company: { select: PUBLIC_COMPANY_SELECT } },
     })
   }
 
@@ -45,7 +46,10 @@ export class OfferService {
    * igual que una oferta inexistente, para no revelar que existe.
    */
   async findOne(id: number, userId: number, role: Role) {
-    const offer = await this.prisma.offer.findUnique({ where: { id }, include: { company: true } })
+    const offer = await this.prisma.offer.findUnique({
+      where: { id },
+      include: { company: { select: PUBLIC_COMPANY_SELECT } },
+    })
     if (!offer) throw new NotFoundException('oferta no encontrada')
     if (offer.status !== OfferStatus.PUBLISHED && !(await this.canSeeUnpublished(offer, userId, role))) {
       throw new NotFoundException('oferta no encontrada')
