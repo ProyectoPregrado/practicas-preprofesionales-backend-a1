@@ -4,11 +4,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApplicationService } from './application.service'
 
 const prisma = {
-  application: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+  application: {
+    create: vi.fn(),
+    findUnique: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
+    updateMany: vi.fn(),
+    findMany: vi.fn(),
+  },
   offer: { findUnique: vi.fn() },
   user: { findUnique: vi.fn() },
 }
 const offers = { acceptedCount: vi.fn() }
+
+// El UPDATE de `decide` es condicional (`updateMany`): el mock lo da por ganado y deja leer lo escrito.
+function mockWriteWins() {
+  let written: Record<string, unknown> = {}
+  prisma.application.updateMany.mockImplementation(({ data }) => {
+    written = data
+    return Promise.resolve({ count: 1 })
+  })
+  prisma.application.findUniqueOrThrow.mockImplementation(() => Promise.resolve({ id: 7, ...written }))
+}
 
 // La oferta 1 es de la empresa 5. `OWNER` trabaja en esa empresa, `FOREIGN` en otra.
 const OWNER = 50
@@ -33,7 +49,7 @@ describe('ApplicationService', () => {
     prisma.application.findUnique.mockResolvedValue({ id: 7, offerId: 1, status: 'SUBMITTED' })
     prisma.offer.findUnique.mockResolvedValue({ id: 1, seats: 3, status: 'PUBLISHED' })
     offers.acceptedCount.mockResolvedValue(2)
-    prisma.application.update.mockImplementation(({ data }) => Promise.resolve({ id: 7, ...data }))
+    mockWriteWins()
 
     const result = await service.decide(7, 'ACCEPTED' as never, COORDINATOR, Role.COORDINATOR)
 
@@ -77,7 +93,7 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
     prisma.offer.findUnique.mockResolvedValue({ id: 1, companyId: 5, seats: 3, status: 'PUBLISHED' })
     prisma.application.findUnique.mockResolvedValue({ id: 7, offerId: 1, status: 'SUBMITTED' })
     prisma.application.findMany.mockResolvedValue([{ id: 1, studentId: 10, status: 'SUBMITTED' }])
-    prisma.application.update.mockImplementation(({ data }) => Promise.resolve({ id: 7, ...data }))
+    mockWriteWins()
     offers.acceptedCount.mockResolvedValue(0)
     prisma.user.findUnique.mockImplementation(({ where }) =>
       Promise.resolve(usersById[where.id] ?? { id: where.id, email: 'e@x', fullName: `Estudiante ${where.id}` }),
@@ -127,7 +143,7 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
       const result = await service.decide(7, ApplicationStatus.REJECTED, OWNER, Role.COMPANY)
 
       expect(result.status).toBe('REJECTED')
-      expect(prisma.application.update).toHaveBeenCalledTimes(1)
+      expect(prisma.application.updateMany).toHaveBeenCalledTimes(1)
     })
 
     it('rechaza con 403 a una empresa ajena, sin escribir ni contar cupos', async () => {
@@ -135,7 +151,7 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
         ForbiddenException,
       )
 
-      expect(prisma.application.update).not.toHaveBeenCalled()
+      expect(prisma.application.updateMany).not.toHaveBeenCalled()
       expect(offers.acceptedCount).not.toHaveBeenCalled()
     })
 
@@ -157,7 +173,7 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
     it.each([Role.STUDENT, Role.TUTOR])('rechaza al rol %s aunque llame al servicio directo', async (role) => {
       await expect(service.decide(7, ApplicationStatus.REJECTED, OWNER, role)).rejects.toThrow(ForbiddenException)
 
-      expect(prisma.application.update).not.toHaveBeenCalled()
+      expect(prisma.application.updateMany).not.toHaveBeenCalled()
     })
 
     it('responde 404 si la postulación no existe', async () => {
@@ -187,10 +203,65 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
       expect(byUser[FOREIGN].status).toBe('rejected')
       expect((byUser[FOREIGN] as PromiseRejectedResult).reason).toBeInstanceOf(ForbiddenException)
       expect(byUser[OWNER].status).toBe('fulfilled')
-      expect(prisma.application.update).toHaveBeenCalledTimes(1)
-      expect(prisma.application.update).toHaveBeenCalledWith(
+      expect(prisma.application.updateMany).toHaveBeenCalledTimes(1)
+      expect(prisma.application.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: ApplicationStatus.REJECTED }) }),
       )
+    })
+
+    describe('decisiones simultáneas sobre la misma postulación', () => {
+      it('el UPDATE queda condicionado al estado vigente (SUBMITTED o INTERVIEW)', async () => {
+        await service.decide(7, ApplicationStatus.REJECTED, COORDINATOR, Role.COORDINATOR)
+
+        expect(prisma.application.updateMany).toHaveBeenCalledWith({
+          where: { id: 7, status: { in: [ApplicationStatus.SUBMITTED, ApplicationStatus.INTERVIEW] } },
+          data: expect.objectContaining({ status: ApplicationStatus.REJECTED }),
+        })
+      })
+
+      it('si otra decisión ganó entre la lectura y la escritura (count 0), recibe "ya fue decidida"', async () => {
+        prisma.application.updateMany.mockResolvedValue({ count: 0 })
+
+        const error = await service
+          .decide(7, ApplicationStatus.REJECTED, COORDINATOR, Role.COORDINATOR)
+          .catch((e: unknown) => e)
+
+        expect(error).toBeInstanceOf(BadRequestException)
+        expect((error as BadRequestException).message).toBe('la postulación ya fue decidida')
+        expect(prisma.application.findUniqueOrThrow).not.toHaveBeenCalled()
+      })
+
+      it('devuelve la postulación ya actualizada leída de la base', async () => {
+        prisma.application.updateMany.mockResolvedValue({ count: 1 })
+        prisma.application.findUniqueOrThrow.mockResolvedValue({ id: 7, offerId: 1, status: 'REJECTED' })
+
+        await expect(service.decide(7, ApplicationStatus.REJECTED, COORDINATOR, Role.COORDINATOR)).resolves.toEqual({
+          id: 7,
+          offerId: 1,
+          status: 'REJECTED',
+        })
+        expect(prisma.application.findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: 7 } })
+      })
+
+      it('traduce offer_full del trigger al mismo error de cupos del chequeo previo', async () => {
+        prisma.application.updateMany.mockRejectedValue(new Error('offer_full: la oferta 1 ya no tiene cupos'))
+
+        const error = await service
+          .decide(7, ApplicationStatus.ACCEPTED, COORDINATOR, Role.COORDINATOR)
+          .catch((e: unknown) => e)
+
+        expect(error).toBeInstanceOf(BadRequestException)
+        expect((error as BadRequestException).message).toBe('la oferta ya no tiene cupos')
+      })
+
+      it('una postulación ya decidida al leerla falla antes de escribir', async () => {
+        prisma.application.findUnique.mockResolvedValue({ id: 7, offerId: 1, status: 'REJECTED' })
+
+        await expect(service.decide(7, ApplicationStatus.ACCEPTED, COORDINATOR, Role.COORDINATOR)).rejects.toThrow(
+          'la postulación ya fue decidida',
+        )
+        expect(prisma.application.updateMany).not.toHaveBeenCalled()
+      })
     })
 
     it('si dos empresas ajenas deciden a la vez, ninguna escribe', async () => {
@@ -200,7 +271,7 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
       ])
 
       expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected'])
-      expect(prisma.application.update).not.toHaveBeenCalled()
+      expect(prisma.application.updateMany).not.toHaveBeenCalled()
     })
   })
 })

@@ -33,5 +33,5 @@ El chequeo de `decide` (`acceptedCount`) se **mantiene solo como atajo** para fa
 ## El seed respeta los cupos (D-11)
 `prisma/seed.ts` reparte las 200 postulaciones `ACCEPTED` con `i % totalOffers` y fija `seats = aceptadas de esa oferta + nextInt(3)`. Resultado: 36 ofertas, ninguna sobrecupada, 9 llenas y el resto con 1 o 2 plazas libres (cupos de 5 a 8). Mismos conteos y credenciales que antes.
 
-## Pendiente
-- `decide` sigue leyendo el estado de la postulación y escribiendo después: dos decisiones simultáneas **sobre la misma postulación** pueden pisarse. No es sobrecupo; queda como seguimiento.
+## Decisiones simultáneas sobre la misma postulación
+`decide` lee el estado y escribe después, así que dos decisiones sobre la misma postulación (aceptar y rechazar, o dos aceptar) podían pasar las dos el chequeo y pisarse. Ahora el `UPDATE` es condicional (`updateMany` con `status IN (SUBMITTED, INTERVIEW)`): solo una escribe; la otra ve `count 0` y recibe `400 "la postulación ya fue decidida"`. Se prueba en `src/application/application-decide-race-e2e.spec.ts` (Postgres real, barrera que fuerza que las dos lean antes de que cualquiera escriba) y en los unitarios de `application.service.spec.ts`.
