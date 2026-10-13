@@ -190,6 +190,8 @@ model HourLog {
   reviewedBy User?     @relation("HourLogReviewer", fields: [reviewedById], references: [id])
 
   @@index([updatedAt, id])
+  // E2-04: el libro de horas siempre se consulta por plaza (y se ordena por fecha).
+  @@index([placementId, date])
   @@map("hour_logs")
 }
 
