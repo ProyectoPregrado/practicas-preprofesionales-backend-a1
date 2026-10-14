@@ -5,32 +5,38 @@ dolió, no por severidad técnica.
 
 Si encuentras algo que no está acá, agrégalo. Casi seguro hay más.
 
-Revisión K-1 (backend), 14 de octubre de 2026, sobre develop local d75a630.
-E2-03 y N-1 están implementadas en sus respectivas ramas; todavía no se integraron
-a develop ni se validaron contra PostgreSQL. El pull falló por DNS, por lo que esta
-revisión no afirma reflejar cambios más recientes del remoto.
+Revisión K-1 (backend), 14 de octubre de 2026, actualizada con develop 73b042a.
+E2-03, N-1, N-3, S-2 y D-11 ya están integradas en develop mediante los PR
+#29, #30, #28, #26 y #27, respectivamente. Los estados siguientes reflejan esa base.
 D-02 sigue abierta: el servicio supera las 300 líneas y conserva las responsabilidades
 y comentarios D-02. No se considera pagada por haber añadido tests o arreglado horas.
+
 ## N-2 — Postulaciones sin validar la oferta ni traducir duplicados
 
 ApplicationService.apply crea la postulación directamente. No verifica que la oferta
 exista o esté publicada. La unicidad offerId/studentId pertenece a la base, pero
-HttpExceptionFilter solo captura HttpException: falta verificar por HTTP cómo se
-expone el P2002. No se afirma haber reproducido un 500. Tarea N-2, pendiente.
+HttpExceptionFilter solo captura HttpException. La caracterización HTTP ya comprobó
+que una oferta inexistente devuelve 500, una postulación repetida devuelve 500 y
+se permite postularse a una oferta cerrada. La corrección está en la rama
+`fix/N-2-validar-oferta-al-postularse`, pendiente de integrarse en develop.
 
-## N-3 — Falta la transición prevista a COMPLETED
+--- Deuda Pagada
 
-Los servicios solo escriben PENDING_DOCS y ACTIVE para las plazas. COMPLETED,
-ABANDONED y SUSPENDED se leen para acreditación, pero no hay una transición que
-complete la plaza al alcanzar las horas aprobadas requeridas. Tarea N-3, pendiente;
-los otros cambios de estado no tienen sprint asignado.
+## N-3 — La plaza pasa a COMPLETED al alcanzar las horas requeridas
 
-## S-2 — El filtro de pertenencia sobrescribe el cursor de placements
+Integrada en develop mediante el PR #28. Al aprobar horas, una plaza ACTIVE pasa
+a COMPLETED cuando la suma de horas aprobadas alcanza requiredHours. El bloqueo
+por plaza protege las aprobaciones simultáneas y la transición incrementa version
+una sola vez. Ver `src/hour-log/placement-completion.ts` y sus pruebas unitarias
+y PostgreSQL en `placement-completion.spec.ts` y `placement-completion-e2e.spec.ts`.
 
-En SyncService.pull, where contiene el OR del cursor. La consulta de plazas construye
-{ ...where, OR: [{ studentId: userId }, { tutorId: userId }] }, por lo que reemplaza
-ese OR. El hallazgo se confirma por lectura del objeto; falta reproducir sus efectos
-contra PostgreSQL y corregirlo en S-2. No se cambia el sync desde esta tarea.
+--- Deuda Pagada
+
+## S-2 — El cursor y la pertenencia de placements se combinan con AND
+
+Integrada en develop mediante el PR #26. SyncService.pull combina con AND el OR
+del cursor y el OR de pertenencia por studentId/tutorId; ninguno sobrescribe al
+otro. La regresión contra PostgreSQL está en `src/sync/sync-pull-cursor.spec.ts`.
 
 ## F-1 — Falta verificar la explicación de los errores de permisos en la interfaz
 
@@ -42,12 +48,12 @@ incorrecto. Un estudiante con postulación a una oferta cerrada debe seguir vié
 ## Sin sprint — Operaciones que todavía requieren caracterización
 
 OfferService.publish y close leen el estado antes de actualizar; no hay atomicidad
-entre ambas operaciones. ApplicationService.decide también lee y luego actualiza:
-dos decisiones sobre una misma postulación pueden pisarse. El primero está verificado
-por lectura; la carrera de decisiones requiere una prueba y se evalúa junto a E2-02.
-No se declara demostrado el fallo de concurrencia con solo esa lectura.
+entre ambas operaciones. El hallazgo está verificado por lectura; falta una prueba
+que caracterice sus efectos concurrentes. No se declara demostrado el fallo de
+concurrencia con solo esa lectura.
 
 --- Deuda Pagada
+
 ## D-01 · El sync duplica horas al reintentar
 
 `src/offline/sync/push.ts` (front) y `src/sync/sync.service.ts` (back).
@@ -77,12 +83,16 @@ correctamente en las ramas de E2-03 y N-1. Por tanto, la afirmación "cero tests
 desactualizada. Esa caracterización no demuestra que todas las reglas de rúbricas y
 scores estén cubiertas: la revisión de E4-01 sigue pendiente.
 
-## D-04 — La lista de postulaciones va lenta
+--- Deuda Pagada
 
-Corrección implementada en E2-03: listByOffer carga los estudiantes en lote y solo
-expone id, email y fullName. Con 200 candidatos, el test unitario pasa de 201 a 1
-llamada ORM. Medición SQL/HTTP en PostgreSQL pendiente por falta de servidor local;
-ver docs/E2-03-medicion.md. No se da por pagada hasta completar esa validación.
+## D-04 — Listado de postulaciones sin N+1
+
+E2-03 está integrada en develop mediante el PR #29. listByOffer carga los estudiantes
+en lote y solo expone id, email y fullName. Con 200 candidatos, la regresión unitaria
+pasa de 201 a 1 llamada ORM. La suite `src/application/application.postgres.spec.ts`
+comprueba SQL y respuesta HTTP con 1, 20 y 250 candidatos, tras calentar la ruta,
+y exige un máximo de 4 consultas. Las llamadas ORM no equivalen a consultas SQL;
+ver `docs/E2-03-medicion.md` para el método de medición.
 
 ## D-05 · `calculateAccreditationStatus` da miedo tocarla
 
@@ -123,12 +133,16 @@ esto no puede quedar así.
 variable — sin ella la aplicación no arranca, con un mensaje que dice cómo generarla. No
 queda ningún valor por defecto en el código (E3-04).
 
+--- Deuda Pagada
+
 ## N-1 — Exclusividad de plazas ACTIVE
 
-Corrección implementada: un índice único parcial impide dos plazas ACTIVE para el
-mismo estudiante y activate devuelve 409 al perder la activación. Pruebas concurrentes
-PostgreSQL/HTTP añadidas, todavía pendientes de ejecución por falta de servidor local.
-No se da por cerrada; ver docs/N-1-plaza-activa.md.
+Integrada en develop mediante el PR #30. Un índice único parcial impide dos plazas
+ACTIVE para el mismo estudiante y activate devuelve 409 al perder la activación.
+La regresión `src/placement/placement.postgres.spec.ts` cubre activaciones concurrentes
+por HTTP y escrituras directas, así como una nueva activación tras completar la plaza
+anterior. Ver `docs/N-1-plaza-activa.md` para el alcance del índice y la reproducción.
+
 ## D-11 · El seed deja casi todas las ofertas con más aceptadas que cupos
 
 `prisma/seed.ts`
