@@ -164,6 +164,53 @@ describe('E2-02 — nunca se aceptan más postulaciones que cupos', () => {
     ).resolves.toMatchObject({ status: ApplicationStatus.ACCEPTED })
   })
 
+  describe('D-11 — el INSERT también respeta los cupos', () => {
+    async function createStudent(offerId: number, n: number) {
+      const student = await prisma.user.create({
+        data: { email: `d11-${suffix}-${offerId}-${n}@test.local`, password: randomUUID(), fullName: `Directo ${n}`, role: Role.STUDENT },
+      })
+      createdUserIds.push(student.id)
+      return student.id
+    }
+
+    it('insertar una postulación ya ACCEPTED dentro del cupo pasa', async () => {
+      const { offerId } = await createOfferWithTwoCandidates(2)
+      const studentId = await createStudent(offerId, 1)
+
+      await expect(
+        prisma.application.create({
+          data: { offerId, studentId, motivation: 'm'.repeat(24), status: ApplicationStatus.ACCEPTED },
+        }),
+      ).resolves.toMatchObject({ status: ApplicationStatus.ACCEPTED })
+    })
+
+    it('insertar una ACCEPTED que supera el cupo se rechaza con offer_full', async () => {
+      const { offerId, applicationIds } = await createOfferWithTwoCandidates(1)
+      await prisma.application.update({ where: { id: applicationIds[0] }, data: { status: ApplicationStatus.ACCEPTED } })
+      const studentId = await createStudent(offerId, 2)
+
+      await expect(
+        prisma.application.create({
+          data: { offerId, studentId, motivation: 'm'.repeat(24), status: ApplicationStatus.ACCEPTED },
+        }),
+      ).rejects.toThrow(/offer_full/)
+
+      expect(await prisma.application.count({ where: { offerId, status: ApplicationStatus.ACCEPTED } })).toBe(1)
+    })
+
+    it('insertar una postulación que NO es ACCEPTED nunca consume cupo, aunque la oferta esté llena', async () => {
+      const { offerId, applicationIds } = await createOfferWithTwoCandidates(1)
+      await prisma.application.update({ where: { id: applicationIds[0] }, data: { status: ApplicationStatus.ACCEPTED } })
+      const studentId = await createStudent(offerId, 3)
+
+      await expect(
+        prisma.application.create({
+          data: { offerId, studentId, motivation: 'm'.repeat(24), status: ApplicationStatus.SUBMITTED },
+        }),
+      ).resolves.toMatchObject({ status: ApplicationStatus.SUBMITTED })
+    })
+  })
+
   it('liberar un cupo lo vuelve a dejar disponible: rechazar a la aceptada permite aceptar a la otra', async () => {
     const { applicationIds } = await createOfferWithTwoCandidates(1)
     await prisma.application.update({ where: { id: applicationIds[0] }, data: { status: ApplicationStatus.ACCEPTED } })

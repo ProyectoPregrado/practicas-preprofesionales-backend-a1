@@ -5,6 +5,7 @@ import { OfferService } from '../offer/offer.service'
 import { PrismaService } from '../prisma/prisma.service'
 
 const OFFER_FULL_MESSAGE = 'la oferta ya no tiene cupos'
+const ALREADY_DECIDED_MESSAGE = 'la postulación ya fue decidida'
 
 // El trigger `enforce_offer_seats` lanza `offer_full: …`; Prisma lo entrega como un error genérico
 // de la base, así que se reconoce por el mensaje.
@@ -75,7 +76,7 @@ export class ApplicationService {
     // Antes que cualquier otra regla: una empresa ajena recibe 403, no un 400 que revele el estado.
     await this.assertOfferAccess(application.offerId, userId, role)
     if (application.status !== ApplicationStatus.SUBMITTED && application.status !== ApplicationStatus.INTERVIEW) {
-      throw new BadRequestException('la postulación ya fue decidida')
+      throw new BadRequestException(ALREADY_DECIDED_MESSAGE)
     }
 
     if (status === ApplicationStatus.ACCEPTED) {
@@ -87,9 +88,13 @@ export class ApplicationService {
       if (accepted >= offer.seats) throw new BadRequestException(OFFER_FULL_MESSAGE)
     }
 
+    let decided: { count: number }
     try {
-      return await this.prisma.application.update({
-        where: { id },
+      // El UPDATE es condicional al estado vigente: la lectura de arriba no basta, dos decisiones
+      // simultáneas sobre la misma postulación pasarían las dos el chequeo. La base deja escribir a una
+      // sola; la otra encuentra la fila ya decidida y no actualiza nada (count 0).
+      decided = await this.prisma.application.updateMany({
+        where: { id, status: { in: [ApplicationStatus.SUBMITTED, ApplicationStatus.INTERVIEW] } },
         data: { status, decidedAt: new Date() },
       })
     } catch (err) {
@@ -97,5 +102,8 @@ export class ApplicationService {
       if (isOfferFullError(err)) throw new BadRequestException(OFFER_FULL_MESSAGE)
       throw err
     }
+    if (decided.count === 0) throw new BadRequestException(ALREADY_DECIDED_MESSAGE)
+
+    return this.prisma.application.findUniqueOrThrow({ where: { id } })
   }
 }

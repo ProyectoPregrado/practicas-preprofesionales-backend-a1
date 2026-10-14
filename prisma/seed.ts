@@ -55,6 +55,15 @@ async function main() {
     })
   }
 
+  // D-11: cada postulación del seed nace ACCEPTED y se reparte con `i % totalOffers`. Los cupos se
+  // calculan a partir de ese reparto (aceptadas + 0..2 libres) para que ninguna oferta nazca sobrecupada
+  // y el trigger `enforce_offer_seats` pueda proteger también los INSERT. Hay variedad: algunas ofertas
+  // quedan llenas (+0) y otras con plazas libres (+1, +2).
+  const totalOffers = COMPANIES * OFFERS_PER_COMPANY
+  const acceptedPerOffer = Array.from({ length: totalOffers }, (_, k) =>
+    Math.max(0, Math.ceil((PLACEMENTS - k) / totalOffers)),
+  )
+
   const offers = []
   for (const company of companies) {
     for (let j = 0; j < OFFERS_PER_COMPANY; j++) {
@@ -64,7 +73,7 @@ async function main() {
           title: `Practicante ${['Backend', 'QA', 'Datos'][j]} — ${company.name}`,
           description: 'Prácticas preprofesionales de 240 horas en modalidad presencial.',
           modality: j % 2 === 0 ? 'PRESENCIAL' : 'HIBRIDA',
-          seats: 2 + nextInt(4),
+          seats: acceptedPerOffer[offers.length] + nextInt(3),
           requiredHours: 240,
           periodStart: new Date('2026-03-01'),
           periodEnd: new Date('2026-07-31'),
