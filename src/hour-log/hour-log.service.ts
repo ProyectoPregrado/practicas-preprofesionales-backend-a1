@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HourLogStatus, PlacementStatus, Role } from '@prisma/client'
+import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
+import { completePlacementIfReached, withPlacementApprovalLock } from './placement-completion'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateHourLogDto } from './dto/create-hour-log.dto'
 
@@ -35,27 +37,26 @@ export class HourLogService {
       throw new BadRequestException('el placement no está activo')
     }
 
-    // D-06 (copia 2): la misma validación que el DTO, con tope 10 en vez de 12.
-    if (dto.hours <= 0 || dto.hours > 10) {
-      throw new BadRequestException('las horas deben estar entre 0 y 10')
-    }
-    const [startHour, startMinute] = dto.startTime.split(':').map(Number)
-    const [endHour, endMinute] = dto.endTime.split(':').map(Number)
-    if (startHour * 60 + startMinute >= endHour * 60 + endMinute) {
-      throw new BadRequestException('la hora de inicio debe ser anterior a la de fin')
-    }
+    // E6-01: la regla de horas vive en hour-rules.ts. Se valida el rango y el orden, y después la suma
+    // diaria del estudiante bajo un bloqueo por estudiante (si no, dos registros simultáneos pasan).
+    const rangeError = hoursRangeError(dto.hours) ?? timeOrderError(dto.startTime, dto.endTime)
+    if (rangeError) throw new BadRequestException(rangeError)
 
     // La fecha del registro llega desde el cliente y se persiste tal como fue recibida.
-    const created = await this.prisma.hourLog.create({
-      data: {
-        placementId: dto.placementId,
-        date: dto.date,
-        startTime: dto.startTime,
-        endTime: dto.endTime,
-        hours: dto.hours,
-        activity: dto.activity,
-        status: HourLogStatus.SUBMITTED,
-      },
+    const created = await withStudentHoursLock(this.prisma, studentId, async (tx) => {
+      const dailyError = await dailyHoursError(tx, studentId, dto.date, dto.hours)
+      if (dailyError) throw new BadRequestException(dailyError)
+      return tx.hourLog.create({
+        data: {
+          placementId: dto.placementId,
+          date: dto.date,
+          startTime: dto.startTime,
+          endTime: dto.endTime,
+          hours: dto.hours,
+          activity: dto.activity,
+          status: HourLogStatus.SUBMITTED,
+        },
+      })
     })
 
     this.notifyTutor(placement.tutorId, created.id)
@@ -93,21 +94,46 @@ export class HourLogService {
    * `SUBMITTED`; de ahí pasan a `APPROVED` o `REJECTED`.
    */
   async review(id: number, status: HourLogStatus, reviewerId: number, note?: string) {
-    const log = await this.prisma.hourLog.findUnique({ where: { id } })
+    const log = await this.prisma.hourLog.findUnique({
+      where: { id },
+      include: { placement: { select: { tutorId: true } } },
+    })
     if (!log) throw new NotFoundException('registro de horas no encontrado')
+    if (log.placement.tutorId !== reviewerId) {
+      throw new ForbiddenException('solo el tutor asignado al placement puede revisar sus horas')
+    }
     if (log.status !== HourLogStatus.SUBMITTED) {
       throw new BadRequestException('solo se revisan registros en SUBMITTED')
     }
-    return this.prisma.hourLog.update({
-      where: { id },
-      data: {
-        status,
-        reviewedById: reviewerId,
-        reviewedAt: new Date(),
-        reviewNote: note,
-        version: { increment: 1 },
-      },
+
+    // N-3: la revisión y el posible cierre de la plaza van en una transacción bajo el bloqueo de la plaza,
+    // para que la suma de horas aprobadas incluya siempre las aprobaciones previas.
+    await withPlacementApprovalLock(this.prisma, log.placementId, async (tx) => {
+      const result = await tx.hourLog.updateMany({
+        where: {
+          id,
+          status: HourLogStatus.SUBMITTED,
+          placement: { tutorId: reviewerId },
+        },
+        data: {
+          status,
+          reviewedById: reviewerId,
+          reviewedAt: new Date(),
+          reviewNote: note,
+          version: { increment: 1 },
+        },
+      })
+
+      if (result.count !== 1) {
+        throw new BadRequestException('solo se revisan registros en SUBMITTED')
+      }
+
+      if (status === HourLogStatus.APPROVED) await completePlacementIfReached(tx, log.placementId)
     })
+
+    const updated = await this.prisma.hourLog.findUnique({ where: { id } })
+    if (!updated) throw new NotFoundException('registro de horas no encontrado')
+    return updated
   }
 
   /**
@@ -264,17 +290,9 @@ export class HourLogService {
     const rows: (string | number)[][] = [header]
 
     for (const dto of logs) {
-      // D-06 (copia 3): la misma validación que en `create`, pegada de
-      // nuevo en vez de compartida — otra copia más de la divergencia de
-      // umbrales entre el DTO (tope 12) y el servicio (tope 10).
-      if (dto.hours <= 0 || dto.hours > 10) {
-        throw new BadRequestException('las horas deben estar entre 0 y 10')
-      }
-      const [startHour, startMinute] = dto.startTime.split(':').map(Number)
-      const [endHour, endMinute] = dto.endTime.split(':').map(Number)
-      if (startHour * 60 + startMinute >= endHour * 60 + endMinute) {
-        throw new BadRequestException('la hora de inicio debe ser anterior a la de fin')
-      }
+      // E6-01: misma regla que en `create`, ahora compartida (hour-rules.ts).
+      const ruleError = hoursRangeError(dto.hours) ?? timeOrderError(dto.startTime, dto.endTime)
+      if (ruleError) throw new BadRequestException(ruleError)
 
       rows.push([
         dto.id,

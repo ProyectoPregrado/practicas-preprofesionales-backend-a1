@@ -77,12 +77,12 @@ correctamente en las ramas de E2-03 y N-1. Por tanto, la afirmación "cero tests
 desactualizada. Esa caracterización no demuestra que todas las reglas de rúbricas y
 scores estén cubiertas: la revisión de E4-01 sigue pendiente.
 
-## D-04 · La lista de postulaciones va lenta
+## D-04 — La lista de postulaciones va lenta
 
-`src/application/application.service.ts`, método `listByOffer`.
-
-Con menos de 200 postulaciones no se nota. Arriba de eso, la pantalla de la empresa tarda
-varios segundos. Sospechamos que es cómo traemos los estudiantes, pero no lo medimos.
+Corrección implementada en E2-03: listByOffer carga los estudiantes en lote y solo
+expone id, email y fullName. Con 200 candidatos, el test unitario pasa de 201 a 1
+llamada ORM. Medición SQL/HTTP en PostgreSQL pendiente por falta de servidor local;
+ver docs/E2-03-medicion.md. No se da por pagada hasta completar esa validación.
 
 ## D-05 · `calculateAccreditationStatus` da miedo tocarla
 
@@ -101,6 +101,14 @@ del frontend.
 Y ya divergieron: el DTO acepta hasta 12 horas por registro y el servicio corta en 10. El
 formulario tiene su propia versión. Nadie recuerda cuál es la correcta.
 
+--- Deuda Pagada (backend)
+
+La coordinación definió el tope: **8 horas por día**, sumando todos los registros del estudiante en
+esa fecha, igual para todas las carreras y períodos. La regla vive ahora en un solo lugar,
+`src/hour-log/hour-rules.ts` (configurable con `MAX_HOURS_PER_DAY`), y la usan el DTO, el servicio, la
+exportación y el sync, con el mismo mensaje (E6-01). Falta el formulario del frontend, que sigue con
+su propia copia.
+
 ## D-07 · `JWT_SECRET` tiene un fallback hardcodeado
 
 `src/auth/auth.module.ts`
@@ -114,3 +122,29 @@ esto no puede quedar así.
 `getRequiredJwtSecret()` (`src/auth/jwt-secret.ts`) lanza al cargar el módulo si falta la
 variable — sin ella la aplicación no arranca, con un mensaje que dice cómo generarla. No
 queda ningún valor por defecto en el código (E3-04).
+
+## N-1 — Exclusividad de plazas ACTIVE
+
+Corrección implementada: un índice único parcial impide dos plazas ACTIVE para el
+mismo estudiante y activate devuelve 409 al perder la activación. Pruebas concurrentes
+PostgreSQL/HTTP añadidas, todavía pendientes de ejecución por falta de servidor local.
+No se da por cerrada; ver docs/N-1-plaza-activa.md.
+## D-11 · El seed deja casi todas las ofertas con más aceptadas que cupos
+
+`prisma/seed.ts`
+
+El seed da a cada oferta entre 2 y 5 cupos (`seats: 2 + nextInt(4)`) y después reparte las 200
+postulaciones `ACCEPTED` entre las 36 ofertas, unas 5 por oferta. Resultado: 36 de las 37 ofertas
+nacen con más aceptadas que cupos. Pasa a ojos cerrados porque el seed inserta las postulaciones ya
+aceptadas, sin pasar por `decide`.
+
+Efecto práctico: ninguna de esas ofertas admite una aceptación nueva (el trigger de E2-02 la
+rechaza, con razón), y el trigger **no** protege el `INSERT` justamente por este seed.
+
+--- Deuda Pagada
+
+El seed calcula primero cuántas aceptadas recibe cada oferta y fija `seats` = aceptadas + 0 a 2
+libres, así que ninguna oferta nace sobrecupada (conteos y credenciales sin cambios). Con eso, la
+migración `enforce_offer_seats_on_insert` extiende el trigger a `BEFORE INSERT OR UPDATE`: un
+`INSERT` con `ACCEPTED` que supere los cupos falla con `offer_full`. Los datos ya sobrecupados en
+bases existentes no se tocan (D-11).
