@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { DocumentKind, DocumentStatus, PlacementStatus, Role } from '@prisma/client'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { DocumentKind, DocumentStatus, PlacementStatus, Prisma, Role } from '@prisma/client'
 import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { PrismaService } from '../prisma/prisma.service'
 import type { UploadDocumentDto } from './dto/upload-document.dto'
