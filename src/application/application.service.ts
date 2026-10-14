@@ -1,5 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { ApplicationStatus, Role } from '@prisma/client'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import { ApplicationStatus, OfferStatus, Prisma, Role } from '@prisma/client'
 import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { OfferService } from '../offer/offer.service'
 import { PrismaService } from '../prisma/prisma.service'
@@ -20,10 +26,23 @@ export class ApplicationService {
     private readonly offers: OfferService,
   ) {}
 
-  apply(offerId: number, studentId: number, motivation: string) {
-    return this.prisma.application.create({
-      data: { offerId, studentId, motivation, status: ApplicationStatus.SUBMITTED },
-    })
+  // N-2: la oferta tiene que existir y estar publicada (404 igual que el catálogo: una oferta
+  // que el estudiante no puede ver no se distingue de una inexistente). La unicidad
+  // (offerId, studentId) la da la restricción de la base: dos envíos simultáneos del mismo
+  // estudiante no pasan una lectura previa, el que pierde recibe P2002 y se traduce a 409.
+  async apply(offerId: number, studentId: number, motivation: string) {
+    const offer = await this.prisma.offer.findUnique({ where: { id: offerId }, select: { status: true } })
+    if (!offer || offer.status !== OfferStatus.PUBLISHED) throw new NotFoundException('oferta no encontrada')
+    try {
+      return await this.prisma.application.create({
+        data: { offerId, studentId, motivation, status: ApplicationStatus.SUBMITTED },
+      })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('ya te postulaste a esta oferta')
+      }
+      throw error
+    }
   }
 
   // Postulaciones del propio estudiante, con la oferta y la empresa incluidas
