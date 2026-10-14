@@ -1,7 +1,16 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { ApplicationStatus, Role } from '@prisma/client'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { OfferService } from '../offer/offer.service'
 import { PrismaService } from '../prisma/prisma.service'
+
+const OFFER_FULL_MESSAGE = 'la oferta ya no tiene cupos'
+
+// El trigger `enforce_offer_seats` lanza `offer_full: …`; Prisma lo entrega como un error genérico
+// de la base, así que se reconoce por el mensaje.
+function isOfferFullError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('offer_full')
+}
 
 @Injectable()
 export class ApplicationService {
@@ -22,7 +31,7 @@ export class ApplicationService {
     return this.prisma.application.findMany({
       where: { studentId },
       orderBy: { submittedAt: 'desc' },
-      include: { offer: { include: { company: true } } },
+      include: { offer: { include: { company: { select: PUBLIC_COMPANY_SELECT } } } },
     })
   }
 
@@ -66,14 +75,21 @@ export class ApplicationService {
     if (status === ApplicationStatus.ACCEPTED) {
       const offer = await this.prisma.offer.findUnique({ where: { id: application.offerId } })
       if (!offer) throw new NotFoundException('oferta no encontrada')
-      // Verifica que la oferta todavía tenga cupos antes de aceptar la postulación.
+      // Chequeo rápido para dar el error sin escribir. NO es la garantía: entre esta lectura y el
+      // UPDATE hay una ventana (E2-01). La garantía es el trigger `enforce_offer_seats` (E2-02).
       const accepted = await this.offers.acceptedCount(application.offerId)
-      if (accepted >= offer.seats) throw new BadRequestException('la oferta ya no tiene cupos')
+      if (accepted >= offer.seats) throw new BadRequestException(OFFER_FULL_MESSAGE)
     }
 
-    return this.prisma.application.update({
-      where: { id },
-      data: { status, decidedAt: new Date() },
-    })
+    try {
+      return await this.prisma.application.update({
+        where: { id },
+        data: { status, decidedAt: new Date() },
+      })
+    } catch (err) {
+      // Perdió la carrera por la última plaza: la base lo rechazó. Mismo error que el chequeo de arriba.
+      if (isOfferFullError(err)) throw new BadRequestException(OFFER_FULL_MESSAGE)
+      throw err
+    }
   }
 }

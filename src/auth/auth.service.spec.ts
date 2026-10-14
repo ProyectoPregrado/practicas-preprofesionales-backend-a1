@@ -178,3 +178,38 @@ describe('AuthService.refresh — E3-03', () => {
     expect(prisma.refreshToken.create).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('AuthService.logout — T-2', () => {
+  let service: AuthService
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    service = new AuthService(prisma as never, jwt as never)
+  })
+
+  it('revoca el refresh token presentado con un UPDATE condicionado a revokedAt: null', async () => {
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 })
+
+    await service.logout('un-refresh-token-cualquiera')
+
+    expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+      where: { tokenHash: hashRefreshToken('un-refresh-token-cualquiera'), revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+  })
+
+  it('es idempotente: un token inexistente o ya revocado no lanza ni revela nada', async () => {
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.logout('token-que-no-existe')).resolves.toBeUndefined()
+  })
+
+  it('nunca guarda ni compara el token en texto plano', async () => {
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 })
+
+    await service.logout('token-en-claro')
+
+    const where = prisma.refreshToken.updateMany.mock.calls[0][0].where
+    expect(where.tokenHash).not.toBe('token-en-claro')
+  })
+})

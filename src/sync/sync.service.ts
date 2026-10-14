@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from '../hour-log/hour-rules'
 import { PrismaService } from '../prisma/prisma.service'
 import { type Checkpoint, decodeCheckpoint, encodeCheckpoint } from './checkpoint'
 import type { SyncOperationInput, SyncOperationResult } from './dto/push.dto'
@@ -170,18 +171,31 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
       return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: 'el placement no pertenece al usuario' }
     }
 
-    const created = await this.prisma.hourLog.create({
-      data: {
-        placementId: Number(op.payload.placementId),
-        date: new Date(String(op.payload.date)),
-        startTime: String(op.payload.startTime),
-        endTime: String(op.payload.endTime),
-        hours: Number(op.payload.hours),
-        activity: String(op.payload.activity),
-        status: 'SUBMITTED',
-      },
+    // E6-01: el sync aplicaba horas sin validarlas. Ahora usa la misma regla que POST /hour-logs.
+    const hours = Number(op.payload.hours)
+    const date = new Date(String(op.payload.date))
+    const startTime = String(op.payload.startTime)
+    const endTime = String(op.payload.endTime)
+    const ruleError = hoursRangeError(hours) ?? timeOrderError(startTime, endTime)
+    if (ruleError) return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: ruleError }
+
+    return withStudentHoursLock(this.prisma, userId, async (tx): Promise<SyncOperationResult> => {
+      const dailyError = await dailyHoursError(tx, userId, date, hours)
+      if (dailyError) return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: dailyError }
+
+      const created = await tx.hourLog.create({
+        data: {
+          placementId: Number(op.payload.placementId),
+          date,
+          startTime,
+          endTime,
+          hours,
+          activity: String(op.payload.activity),
+          status: 'SUBMITTED',
+        },
+      })
+      return { clientOpId: op.clientOpId, status: 'applied', server: created as never, reason: null }
     })
-    return { clientOpId: op.clientOpId, status: 'applied', server: created as never, reason: null }
   }
 
   private async handleUpdateHourLog(existing: any, op: SyncOperationInput): Promise<SyncOperationResult> {
@@ -200,17 +214,24 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
       }
     }
 
-    const updated = await this.prisma.hourLog.update({
-      where: { id: Number(op.payload.id) },
-      data: {
-        date: new Date(String(op.payload.date)),
-        startTime: String(op.payload.startTime),
-        endTime: String(op.payload.endTime),
-        hours: Number(op.payload.hours),
-        activity: String(op.payload.activity),
-        version: { increment: 1 },
-      },
+    // E6-01: misma regla que en la creación; al editar, el registro no se cuenta a sí mismo.
+    const hours = Number(op.payload.hours)
+    const date = new Date(String(op.payload.date))
+    const startTime = String(op.payload.startTime)
+    const endTime = String(op.payload.endTime)
+    const ruleError = hoursRangeError(hours) ?? timeOrderError(startTime, endTime)
+    if (ruleError) return { clientOpId: op.clientOpId, status: 'rejected', server: existing as never, reason: ruleError }
+
+    const studentId = existing.placement.studentId as number
+    return withStudentHoursLock(this.prisma, studentId, async (tx): Promise<SyncOperationResult> => {
+      const dailyError = await dailyHoursError(tx, studentId, date, hours, existing.id)
+      if (dailyError) return { clientOpId: op.clientOpId, status: 'rejected', server: existing as never, reason: dailyError }
+
+      const updated = await tx.hourLog.update({
+        where: { id: Number(op.payload.id) },
+        data: { date, startTime, endTime, hours, activity: String(op.payload.activity), version: { increment: 1 } },
+      })
+      return { clientOpId: op.clientOpId, status: 'applied', server: updated as never, reason: null }
     })
-    return { clientOpId: op.clientOpId, status: 'applied', server: updated as never, reason: null }
   }
 }

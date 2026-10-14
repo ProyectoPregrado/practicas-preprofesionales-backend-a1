@@ -3,8 +3,16 @@ import { SyncService } from './sync.service'
 import type { SyncOperationInput } from './dto/push.dto'
 
 const prisma = {
+  $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+  $executeRaw: vi.fn(),
   placement: { findMany: vi.fn(), findUnique: vi.fn() },
-  hourLog: { findMany: vi.fn(), create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
+  hourLog: {
+    findMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    findUnique: vi.fn(),
+    aggregate: vi.fn().mockResolvedValue({ _sum: { hours: null } }),
+  },
   document: { findMany: vi.fn() },
   evaluation: { findMany: vi.fn() },
   syncOperation: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
@@ -505,4 +513,74 @@ describe('SyncService — pull', () => {
   })
 })
 
+// E6-01: el sync aplicaba horas sin validarlas; ahora usa la misma regla que POST /hour-logs.
+describe('SyncService — tope de horas por día (E6-01)', () => {
+  let service: SyncService
 
+  const createOp = (hours: number, clientOpId: string): SyncOperationInput => ({
+    clientOpId,
+    entity: 'hourLog',
+    op: 'create',
+    baseVersion: null,
+    payload: { placementId: 1, date: '2026-04-02', startTime: '08:00', endTime: '18:00', hours, activity: 'Soporte' },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
+    service = new SyncService(prisma as never)
+  })
+
+  it('rechaza un registro de más de 8 horas con el motivo, sin escribir', async () => {
+    const { results } = await service.push(5, [createOp(9, 'e6-01-aaaa-0001')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toMatch(/entre 0\.5 y 8/)
+    expect(prisma.hourLog.create).not.toHaveBeenCalled()
+  })
+
+  it('rechaza si, sumado a lo ya registrado ese día, pasa de 8 horas', async () => {
+    prisma.hourLog.aggregate.mockResolvedValueOnce({ _sum: { hours: 7 } })
+
+    const { results } = await service.push(5, [createOp(2, 'e6-01-aaaa-0002')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toMatch(/no puede superar 8 horas \(ya tienes 7 registradas el 2026-04-02\)/)
+    expect(prisma.hourLog.create).not.toHaveBeenCalled()
+  })
+
+  it('acepta completar el día justo en 8 horas', async () => {
+    prisma.hourLog.aggregate.mockResolvedValueOnce({ _sum: { hours: 6 } })
+
+    const { results } = await service.push(5, [createOp(2, 'e6-01-aaaa-0003')])
+
+    expect(results[0].status).toBe('applied')
+    expect(prisma.hourLog.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('al editar, el registro no se cuenta a sí mismo en la suma del día', async () => {
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 31,
+      status: 'SUBMITTED',
+      placement: { studentId: 5 },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+    prisma.hourLog.update.mockResolvedValue({ id: 31, version: 2 })
+
+    const { results } = await service.push(5, [
+      {
+        clientOpId: 'e6-01-aaaa-0004',
+        entity: 'hourLog',
+        op: 'update',
+        baseVersion: 1,
+        payload: { id: 31, date: '2026-04-02', startTime: '08:00', endTime: '16:00', hours: 8, activity: 'Ajuste' },
+      },
+    ])
+
+    expect(results[0].status).toBe('applied')
+    expect(prisma.hourLog.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { not: 31 } }) }),
+    )
+  })
+})
