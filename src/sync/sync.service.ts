@@ -27,7 +27,9 @@ export class SyncService {
 
     const [placements, hourLogs, documents, evaluations] = await Promise.all([
       this.prisma.placement.findMany({
-        where: { ...where, OR: [{ studentId: userId }, { tutorId: userId }] },
+        // S-2: AND y no un spread. `where` ya trae un `OR` (el del cursor) y un segundo `OR`
+        // de pertenencia lo pisaba, así que las plazas ignoraban el cursor.
+        where: { AND: [where, { OR: [{ studentId: userId }, { tutorId: userId }] }] },
         orderBy,
         take: limit,
       }),
