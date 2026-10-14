@@ -1,5 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { DocumentKind, DocumentStatus, PlacementStatus, Prisma, Role } from '@prisma/client'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { DocumentKind, DocumentStatus, PlacementStatus, Role } from '@prisma/client'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { PrismaService } from '../prisma/prisma.service'
 import type { UploadDocumentDto } from './dto/upload-document.dto'
 
@@ -82,7 +83,8 @@ export class PlacementService {
       where: { studentId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: {
-        company: true,
+        // H-6: sin `taxId` ni `contactEmail`; el estudiante solo necesita los datos públicos.
+        company: { select: PUBLIC_COMPANY_SELECT },
         // `tutor: true` filtraría el hash de contraseña del tutor en la respuesta.
         tutor: { select: { id: true, fullName: true, email: true } },
         documents: true,
