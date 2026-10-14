@@ -11,13 +11,17 @@ const suffix = `${Date.now()}`
 const service = new HourLogService(prisma as never)
 const REQUIRED = 8
 const created = { userIds: [] as number[], placementIds: [] as number[], applicationIds: [] as number[], offerIds: [] as number[], companyId: 0 }
-let studentId = 0
 let tutorId = 0
 let seq = 0
 
-// Cada caso usa su propia plaza ACTIVE (con su propia oferta y postulación: la pareja oferta+estudiante es única).
+// Cada plaza usa su propio estudiante para respetar el índice de una sola plaza ACTIVE por estudiante (N-1).
 const newPlacement = async (status: PlacementStatus = PlacementStatus.ACTIVE) => {
   seq += 1
+  const student = await prisma.user.create({
+    data: { email: `n3-student-${suffix}-${seq}@test.local`, password: randomUUID(), fullName: 'student', role: Role.STUDENT },
+  })
+  created.userIds.push(student.id)
+  const studentId = student.id
   const offer = await prisma.offer.create({
     data: {
       companyId: created.companyId, title: `N-3 ${suffix}-${seq}`, description: 'x', modality: 'PRESENCIAL', seats: 1, requiredHours: REQUIRED,
@@ -55,15 +59,10 @@ beforeAll(async () => {
     data: { taxId: `N3${suffix}`, name: `Empresa N-3 ${suffix}`, sector: 'TI', contactEmail: `n3-${suffix}@test.local` },
   })
   created.companyId = company.id
-  const [student, tutor] = await Promise.all(
-    ['student', 'tutor'].map((kind) =>
-      prisma.user.create({
-        data: { email: `n3-${kind}-${suffix}@test.local`, password: randomUUID(), fullName: kind, role: kind === 'tutor' ? Role.TUTOR : Role.STUDENT },
-      }),
-    ),
-  )
-  created.userIds.push(student.id, tutor.id)
-  studentId = student.id
+  const tutor = await prisma.user.create({
+    data: { email: `n3-tutor-${suffix}@test.local`, password: randomUUID(), fullName: 'tutor', role: Role.TUTOR },
+  })
+  created.userIds.push(tutor.id)
   tutorId = tutor.id
 })
 
@@ -156,6 +155,7 @@ describe('N-3 — plaza COMPLETED al alcanzar las horas requeridas (Postgres rea
 
   it('una plaza COMPLETED rechaza nuevas horas por create', async () => {
     const placementId = await newPlacement(PlacementStatus.COMPLETED)
+    const { studentId } = await placementOf(placementId)
 
     await expect(
       service.create(

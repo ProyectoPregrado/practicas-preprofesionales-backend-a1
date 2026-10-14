@@ -163,6 +163,8 @@ model Placement {
   evaluations Evaluation[]
   documents   Document[]
 
+  // N-1: the SQL migration adds a unique studentId index WHERE status = 'ACTIVE'.
+  // Prisma 6 cannot represent that partial uniqueness with @@unique.
   @@index([studentId, status])
   @@index([updatedAt, id])
   @@map("placements")

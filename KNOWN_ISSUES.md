@@ -82,6 +82,12 @@ esto no puede quedar así.
 variable — sin ella la aplicación no arranca, con un mensaje que dice cómo generarla. No
 queda ningún valor por defecto en el código (E3-04).
 
+## N-1 — Exclusividad de plazas ACTIVE
+
+Corrección implementada: un índice único parcial impide dos plazas ACTIVE para el
+mismo estudiante y activate devuelve 409 al perder la activación. Pruebas concurrentes
+PostgreSQL/HTTP añadidas, todavía pendientes de ejecución por falta de servidor local.
+No se da por cerrada; ver docs/N-1-plaza-activa.md.
 ## D-11 · El seed deja casi todas las ofertas con más aceptadas que cupos
 
 `prisma/seed.ts`
