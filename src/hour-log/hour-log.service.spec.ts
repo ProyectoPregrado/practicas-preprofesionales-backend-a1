@@ -13,7 +13,7 @@ const prisma = {
     findMany: vi.fn(),
     aggregate: vi.fn(),
   },
-  placement: { findUnique: vi.fn() },
+  placement: { findUnique: vi.fn(), updateMany: vi.fn() },
 }
 
 describe('HourLogService', () => {
@@ -96,6 +96,8 @@ describe('HourLogService', () => {
   })
 
   it('approves a submitted hour log', async () => {
+    prisma.placement.findUnique.mockResolvedValue({ requiredHours: 240, status: 'ACTIVE' })
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 4 } })
     prisma.hourLog.findUnique
       .mockResolvedValueOnce({
         id: 99,
@@ -157,5 +159,60 @@ describe('HourLogService', () => {
     expect(prisma.hourLog.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ placement: { tutorId: 7 } }) }),
     )
+  })
+
+  // N-3: la plaza se completa al alcanzar requiredHours, bajo el bloqueo por plaza.
+  describe('N-3 — plaza COMPLETED al aprobar horas', () => {
+    beforeEach(() => {
+      prisma.hourLog.findUnique
+        .mockReset()
+        .mockResolvedValueOnce({ id: 99, placementId: 1, status: 'SUBMITTED', version: 1, placement: { tutorId: 7 } })
+        .mockResolvedValue({ id: 99, status: 'APPROVED', reviewedById: 7 })
+      prisma.hourLog.updateMany.mockResolvedValue({ count: 1 })
+      prisma.placement.findUnique.mockResolvedValue({ requiredHours: 240, status: 'ACTIVE' })
+      prisma.placement.updateMany.mockResolvedValue({ count: 1 })
+    })
+
+    it('al aprobar completa la plaza si las horas aprobadas alcanzan requiredHours', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 240 } })
+
+      await service.review(99, 'APPROVED' as never, 7)
+
+      expect(prisma.placement.updateMany).toHaveBeenCalledWith({
+        where: { id: 1, status: 'ACTIVE' },
+        data: { status: 'COMPLETED', version: { increment: 1 } },
+      })
+    })
+
+    it('toma el bloqueo de la plaza antes de escribir la aprobación', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 1 } })
+
+      await service.review(99, 'APPROVED' as never, 7)
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.hourLog.updateMany.mock.invocationCallOrder[0])
+    })
+
+    it('no completa la plaza por debajo del umbral', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 239.5 } })
+
+      await service.review(99, 'APPROVED' as never, 7)
+
+      expect(prisma.placement.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('rechazar horas no evalúa ni completa la plaza', async () => {
+      await service.review(99, 'REJECTED' as never, 7, 'no cuadra')
+
+      expect(prisma.hourLog.aggregate).not.toHaveBeenCalled()
+      expect(prisma.placement.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('si la revisión pierde la carrera (count 0) no completa la plaza', async () => {
+      prisma.hourLog.updateMany.mockResolvedValue({ count: 0 })
+
+      await expect(service.review(99, 'APPROVED' as never, 7)).rejects.toThrow(BadRequestException)
+      expect(prisma.placement.updateMany).not.toHaveBeenCalled()
+    })
   })
 })
