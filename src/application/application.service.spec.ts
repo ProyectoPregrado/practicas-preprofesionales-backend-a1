@@ -51,6 +51,22 @@ describe('ApplicationService', () => {
     )
   })
 
+  it('loads 200 candidates without a lookup per student', async () => {
+    const rows = Array.from({ length: 200 }, (_, i) => ({
+      id: i + 1, studentId: i + 10, status: 'SUBMITTED',
+      student: { id: i + 10, email: 'student@test.invalid', fullName: 'Student' },
+    }))
+    prisma.application.findMany.mockResolvedValue(rows)
+    prisma.user.findUnique.mockResolvedValue(rows[0].student)
+
+    const result = await service.listByOffer(1, COORDINATOR, Role.COORDINATOR)
+
+    console.info('E2-03 ORM calls for 200 candidates:',
+      prisma.application.findMany.mock.calls.length + prisma.user.findUnique.mock.calls.length)
+    expect(result).toHaveLength(200)
+    expect(prisma.user.findUnique.mock.calls.length).toBe(0)
+  })
+
   it('lists applications of an offer with their student', async () => {
     prisma.application.findMany.mockResolvedValue([
       { id: 1, studentId: 10, status: 'SUBMITTED' },
