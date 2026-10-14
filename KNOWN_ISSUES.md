@@ -5,20 +5,30 @@ dolió, no por severidad técnica.
 
 Si encuentras algo que no está acá, agrégalo. Casi seguro hay más.
 
-Revisión K-1 (backend), 14 de octubre de 2026, actualizada con develop 73b042a.
-E2-03, N-1, N-3, S-2 y D-11 ya están integradas en develop mediante los PR
-#29, #30, #28, #26 y #27, respectivamente. Los estados siguientes reflejan esa base.
+Revisión K-1 (backend), 14 de octubre de 2026, actualizada con develop 8229dee.
+E2-03, N-1, N-2, N-3, S-2 y D-11 ya están integradas en develop mediante los PR
+#29, #30, #32, #28, #26 y #27, respectivamente. Los estados siguientes reflejan esa base.
 D-02 sigue abierta: el servicio supera las 300 líneas y conserva las responsabilidades
 y comentarios D-02. No se considera pagada por haber añadido tests o arreglado horas.
 
-## N-2 — Postulaciones sin validar la oferta ni traducir duplicados
+--- Deuda Pagada
 
-ApplicationService.apply crea la postulación directamente. No verifica que la oferta
-exista o esté publicada. La unicidad offerId/studentId pertenece a la base, pero
-HttpExceptionFilter solo captura HttpException. La caracterización HTTP ya comprobó
-que una oferta inexistente devuelve 500, una postulación repetida devuelve 500 y
-se permite postularse a una oferta cerrada. La corrección está en la rama
-`fix/N-2-validar-oferta-al-postularse`, pendiente de integrarse en develop.
+## N-2 — POST /applications valida la oferta y traduce las postulaciones repetidas
+
+Integrada en develop mediante el PR #32. Antes, ApplicationService.apply creaba la
+postulación sin validar nada: una oferta inexistente respondía 500, una postulación
+repetida respondía 500 (HttpExceptionFilter solo captura HttpException, no el P2002 de
+Prisma) y una oferta cerrada se aceptaba con 201. Ahora una oferta inexistente o no
+publicada responde 404 y una postulación repetida responde 409. La unicidad
+offerId/studentId la sigue dando la restricción de la base; el servicio solo traduce su
+P2002. La regresión contra PostgreSQL, con dos postulaciones simultáneas del mismo
+estudiante (una gana y la otra recibe 409), está en
+`src/application/application-apply-e2e.spec.ts`.
+
+Límite conocido: apply lee la oferta y después inserta, en dos pasos. Si la oferta se cierra
+justo entre ambos, la postulación se crea igual; no afecta datos ni seguridad. Es el mismo
+caso de publish y close (ver "Sin sprint"). El frontend muestra el mensaje del servidor al
+postularse (OfferDetailPage), por lo que el 404 y el 409 llegan al usuario con texto claro.
 
 --- Deuda Pagada
 
