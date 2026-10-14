@@ -36,12 +36,12 @@ Cero. Lo hicimos en la última semana y no alcanzamos. Es el módulo que más ba
 del proyecto. Si vas a tocar rúbricas o scores, escribe los tests primero — nadie sabe qué se
 rompe.
 
-## D-04 · La lista de postulaciones va lenta
+## D-04 — La lista de postulaciones va lenta
 
-`src/application/application.service.ts`, método `listByOffer`.
-
-Con menos de 200 postulaciones no se nota. Arriba de eso, la pantalla de la empresa tarda
-varios segundos. Sospechamos que es cómo traemos los estudiantes, pero no lo medimos.
+Corrección implementada en E2-03: listByOffer carga los estudiantes en lote y solo
+expone id, email y fullName. Con 200 candidatos, el test unitario pasa de 201 a 1
+llamada ORM. Medición SQL/HTTP en PostgreSQL pendiente por falta de servidor local;
+ver docs/E2-03-medicion.md. No se da por pagada hasta completar esa validación.
 
 ## D-05 · `calculateAccreditationStatus` da miedo tocarla
 
