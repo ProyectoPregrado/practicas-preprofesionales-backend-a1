@@ -68,19 +68,21 @@ describe('ApplicationService', () => {
   })
 
   it('lists applications of an offer with their student', async () => {
-    prisma.application.findMany.mockResolvedValue([
-      { id: 1, studentId: 10, status: 'SUBMITTED' },
-      { id: 2, studentId: 11, status: 'SUBMITTED' },
-    ])
-    prisma.user.findUnique
-      .mockResolvedValueOnce({ id: 10, fullName: 'Estudiante 10' })
-      .mockResolvedValueOnce({ id: 11, fullName: 'Estudiante 11' })
+    const rows = [
+      { id: 1, studentId: 10, status: 'SUBMITTED', student: { id: 10, fullName: 'Estudiante 10', email: 's10@test.invalid' } },
+      { id: 2, studentId: 11, status: 'SUBMITTED', student: { id: 11, fullName: 'Estudiante 11', email: 's11@test.invalid' } },
+    ]
+    prisma.application.findMany.mockResolvedValue(rows)
 
     const result = await service.listByOffer(1, COORDINATOR, Role.COORDINATOR)
 
-    expect(result).toHaveLength(2)
-    expect(result[0]).toMatchObject({ id: 1, student: { fullName: 'Estudiante 10' } })
+    expect(result).toEqual(rows)
+    expect(prisma.application.findMany).toHaveBeenCalledWith({
+      where: { offerId: 1 },
+      include: { student: { select: { id: true, email: true, fullName: true } } },
+    })
   })
+
 })
 
 // E3-07: la empresa solo ve y decide las postulaciones de sus propias ofertas.
@@ -105,7 +107,7 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
       const result = await service.listByOffer(1, OWNER, Role.COMPANY)
 
       expect(result).toHaveLength(1)
-      expect(prisma.application.findMany).toHaveBeenCalledWith({ where: { offerId: 1 } })
+      expect(prisma.application.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { offerId: 1 } }))
     })
 
     it('rechaza con 403 a una empresa que no es dueña de la oferta, sin consultar las postulaciones', async () => {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { type INestApplication } from '@nestjs/common'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { Test } from '@nestjs/testing'
@@ -34,10 +35,10 @@ describe.skipIf(!postgresTestUrl)('E2-03: application listing on PostgreSQL and 
     })
     companyId = company.id
     const owner = await database.prisma.user.create({
-      data: { email: 'owner@test.invalid', fullName: 'Owner', password: 'private', role: Role.COMPANY, companyId },
+      data: { email: 'owner@test.invalid', fullName: 'Owner', password: randomUUID(), role: Role.COMPANY, companyId },
     })
     const foreign = await database.prisma.user.create({
-      data: { email: 'foreign@test.invalid', fullName: 'Foreign', password: 'private', role: Role.COMPANY },
+      data: { email: 'foreign@test.invalid', fullName: 'Foreign', password: randomUUID(), role: Role.COMPANY },
     })
     ownerId = owner.id
     foreignId = foreign.id
@@ -57,10 +58,10 @@ describe.skipIf(!postgresTestUrl)('E2-03: application listing on PostgreSQL and 
     })
     await database.prisma.user.createMany({
       data: Array.from({ length: count }, (_, i) => ({
-        email: `${offer.id}-${i}@test.invalid`, fullName: `Student ${i}`, password: 'must-not-leak',
+        email: `${offer.id}-${i}@test.invalid`, fullName: `Student ${i}`, password: randomUUID(),
       })),
     })
-    const students = await database.prisma.user.findMany({ where: { email: { endsWith: '@test.invalid' }, role: Role.STUDENT } })
+    const students = await database.prisma.user.findMany({ where: { email: { startsWith: `${offer.id}-` }, role: Role.STUDENT } })
     const candidates = students.filter((student) => student.email.startsWith(`${offer.id}-`))
     if (count > 0) {
       await database.prisma.application.createMany({
@@ -96,7 +97,8 @@ describe.skipIf(!postgresTestUrl)('E2-03: application listing on PostgreSQL and 
       .auth(jwt.sign({ sub: ownerId, role: Role.COMPANY }), { type: 'bearer' }).expect(200, [])
     await request(app.getHttpServer()).get(`/api/offers/${offer.id}/applications`)
       .auth(jwt.sign({ sub: ownerId, role: Role.COORDINATOR }), { type: 'bearer' }).expect(200, [])
-    await request(app.getHttpServer()).get(`/api/offers/${offer.id}/applications`)
+    const denied = await request(app.getHttpServer()).get(`/api/offers/${offer.id}/applications`)
       .auth(jwt.sign({ sub: foreignId, role: Role.COMPANY }), { type: 'bearer' }).expect(403)
+    expect(denied.body.statusCode).toBe(403)
   })
 })

@@ -16,13 +16,14 @@ export async function createPostgresTestDatabase() {
     datasources: { db: { url: url.toString() } },
     log: [{ emit: 'event', level: 'query' }],
   })
+  let schemaCreated = false
   const queries: string[] = []
   prisma.$on('query', (event) => queries.push(event.query))
 
   const close = async () => {
     await prisma.$disconnect()
     try {
-      await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+      if (schemaCreated) await admin.$executeRawUnsafe(`DROP SCHEMA "${schema}" CASCADE`)
     } finally {
       await admin.$disconnect()
     }
@@ -30,6 +31,7 @@ export async function createPostgresTestDatabase() {
 
   try {
     await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`)
+    schemaCreated = true
     const migration = spawnSync(process.execPath, [resolve('node_modules/prisma/build/index.js'), 'migrate', 'deploy'], {
       env: { ...process.env, DATABASE_URL: url.toString() },
       encoding: 'utf8',
