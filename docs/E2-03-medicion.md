@@ -9,11 +9,11 @@ secuenciales de usuarios. Ahora carga la relación student en lote y selecciona
 | Medición | Antes (b7c3bfa) | Después |
 | --- | --- | --- |
 | Llamadas ORM, 200 candidatos, coordinador (test unitario) | 201 | 1 |
-| Consultas SQL y duración HTTP en PostgreSQL | Pendiente | Pendiente |
+| Consultas SQL y duración HTTP en PostgreSQL | Pendiente | CI previo al ajuste: 5 / 4 / 4 sentencias para 1 / 20 / 250 candidatos; detalle abajo |
 
 Las llamadas ORM se midieron con mocks; **no son un conteo de SQL ni un benchmark
 de latencia**. Prisma puede ejecutar más de una consulta para resolver una relación.
-La prueba HTTP real registra SQL y milisegundos para 1, 20 y 250 candidatos y exige
+La prueba HTTP real registra SQL y milisegundos tras una petición de calentamiento para 1, 20 y 250 candidatos y exige
 un máximo de 4 consultas, incluidas las dos lecturas de permisos de la empresa.
 También comprueba la forma de la respuesta, la ausencia de datos privados, la lista
 vacía, el acceso de coordinación y el 403 de una empresa ajena.
@@ -52,3 +52,21 @@ la base y resolver cualquier cambio antes de publicar el PR contra develop.
 Checks locales: typecheck y build correctos; lint de todos los archivos cambiados
 sin errores. La suite sync-e2e existente requiere JWT_SECRET y PostgreSQL y queda
 fuera de la ejecución unitaria sin base de datos.
+
+## Ajuste de la medición del PR #29
+
+El registro de CI compartido mostró 5 sentencias en la primera petición (1 candidato),
+4 para 20 candidatos y 4 para 250. Los tiempos HTTP fueron 63,87 ms, 8,35 ms y 12,60 ms,
+respectivamente. Son medidas anteriores a este ajuste; el registro no incluía el SQL
+individual para identificar la sentencia adicional.
+
+La prueba hace ahora una petición de calentamiento por tamaño, espera su respuesta
+y luego reinicia el contador. Mide SQL y latencia con la ruta y el pool ya utilizados,
+contando todas las sentencias de la petición medida. El límite sigue siendo 4 y se
+comprueba además que el contador no esté vacío. Si se supera el límite, se registra
+el SQL sin sus parámetros para facilitar el diagnóstico. Los casos de 20 y 250
+candidatos siguen detectando una consulta por estudiante.
+
+La rama incorpora develop local d7d4460. Sobre esa combinación pasaron 202 pruebas
+unitarias y typecheck. La ejecución de esta medición ajustada contra PostgreSQL
+queda pendiente del siguiente CI, porque Docker sigue sin un daemon local disponible.

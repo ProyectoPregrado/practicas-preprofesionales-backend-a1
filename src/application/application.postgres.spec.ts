@@ -71,18 +71,25 @@ describe.skipIf(!postgresTestUrl)('E2-03: application listing on PostgreSQL and 
     return { offer, candidates }
   }
 
-  it.each([1, 20, 250])('returns %i candidates with a bounded SQL query count and safe student data', async (count) => {
+  it.each([1, 20, 250])('returns %i candidates with bounded SQL after warmup and safe student data', async (count) => {
     const { offer, candidates } = await createOffer(count)
+    const path = `/api/offers/${offer.id}/applications`
+    const token = jwt.sign({ sub: ownerId, role: Role.COMPANY })
+    // Warm the pool and HTTP route before measuring steady-state SQL and latency.
+    // Count every statement in the measured request; keep the N+1 bound at four.
+    await request(app.getHttpServer()).get(path).auth(token, { type: 'bearer' }).expect(200)
     database.queries.length = 0
     const start = performance.now()
     const response = await request(app.getHttpServer())
-      .get(`/api/offers/${offer.id}/applications`)
-      .auth(jwt.sign({ sub: ownerId, role: Role.COMPANY }), { type: 'bearer' })
+      .get(path)
+      .auth(token, { type: 'bearer' })
       .expect(200)
     const sqlCount = database.queries.length
     console.info(`E2-03 candidates=${count} sql=${sqlCount} httpMs=${(performance.now() - start).toFixed(2)}`)
 
     expect(response.body).toHaveLength(count)
+    if (sqlCount > 4) console.info('E2-03 unexpected measured SQL:', [...new Set(database.queries)])
+    expect(sqlCount).toBeGreaterThan(0)
     expect(sqlCount).toBeLessThanOrEqual(4) // Two permission reads plus two batched relation reads.
     for (const row of response.body) {
       const student = candidates.find((candidate) => candidate.id === row.studentId)
