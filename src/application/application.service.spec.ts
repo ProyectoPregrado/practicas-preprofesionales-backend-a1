@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { ApplicationStatus, Role } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { ApplicationService } from './application.service'
 
 const prisma = {
@@ -202,5 +203,22 @@ describe('ApplicationService — pertenencia de la oferta (E3-07)', () => {
       expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected'])
       expect(prisma.application.update).not.toHaveBeenCalled()
     })
+  })
+})
+
+// H-6 (T-4): las postulaciones propias traen la empresa sin NIT ni correo de contacto.
+describe('ApplicationService — datos públicos de la empresa (H-6)', () => {
+  it('listForStudent incluye solo los campos públicos de la empresa', async () => {
+    vi.resetAllMocks()
+    prisma.application.findMany.mockResolvedValue([])
+    const service = new ApplicationService(prisma as never, offers as never)
+
+    await service.listForStudent(10)
+
+    expect(prisma.application.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { offer: { include: { company: { select: PUBLIC_COMPANY_SELECT } } } },
+      }),
+    )
   })
 })

@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { ApplicationStatus, Role } from '@prisma/client'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { OfferService } from '../offer/offer.service'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -30,7 +31,7 @@ export class ApplicationService {
     return this.prisma.application.findMany({
       where: { studentId },
       orderBy: { submittedAt: 'desc' },
-      include: { offer: { include: { company: true } } },
+      include: { offer: { include: { company: { select: PUBLIC_COMPANY_SELECT } } } },
     })
   }
 

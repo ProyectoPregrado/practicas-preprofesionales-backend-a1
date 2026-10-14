@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { Role } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { OfferService } from './offer.service'
 
 const prisma = {
@@ -279,5 +280,36 @@ describe('OfferService — visibilidad de una oferta (H-5)', () => {
     prisma.offer.findUnique.mockResolvedValue(null)
 
     await expect(service.findOne(999, STUDENT, Role.STUDENT)).rejects.toThrow(NotFoundException)
+  })
+})
+
+// H-6 (T-4): el catálogo y el detalle de una oferta no entregan el NIT ni el correo de contacto.
+describe('OfferService — datos públicos de la empresa (H-6)', () => {
+  let service: OfferService
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    service = new OfferService(prisma as never)
+  })
+
+  it('findAll incluye solo los campos públicos de la empresa', async () => {
+    prisma.offer.findMany.mockResolvedValue([])
+
+    await service.findAll()
+
+    expect(prisma.offer.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: { company: { select: PUBLIC_COMPANY_SELECT } } }),
+    )
+  })
+
+  it('findOne incluye solo los campos públicos de la empresa', async () => {
+    prisma.offer.findUnique.mockResolvedValue({ id: 1, companyId: OFFER_COMPANY, status: 'PUBLISHED' })
+
+    await service.findOne(1, STUDENT, Role.STUDENT)
+
+    expect(prisma.offer.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      include: { company: { select: PUBLIC_COMPANY_SELECT } },
+    })
   })
 })
