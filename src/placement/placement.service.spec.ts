@@ -42,16 +42,44 @@ describe('PlacementService.activate', () => {
 
     await expect(service.activate(1)).rejects.toThrow(BadRequestException)
   })
-  it('translates the ACTIVE student uniqueness violation to HTTP 409', async () => {
+
+  it.each([{ target: ['studentId'] }, { target: 'placements_one_active_per_student' }])(
+    'translates the ACTIVE student uniqueness violation ($target) to HTTP 409', async ({ target }) => {
+      prisma.placement.findUnique.mockResolvedValue({
+        id: 1, status: 'PENDING_DOCS',
+        documents: [{ kind: 'AGREEMENT', status: 'VALIDATED' }, { kind: 'INSURANCE', status: 'VALIDATED' }],
+      })
+      prisma.placement.update.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('unique constraint', {
+        code: 'P2002', clientVersion: Prisma.prismaVersion.client, meta: { target },
+      }))
+
+      await expect(service.activate(1)).rejects.toThrow(ConflictException)
+    },
+  )
+
+  it.each([
+    { code: 'P2002', target: ['applicationId'] },
+    { code: 'P2003', target: ['studentId'] },
+  ])('does not mask other database errors ($code / $target)', async ({ code, target }) => {
     prisma.placement.findUnique.mockResolvedValue({
       id: 1, status: 'PENDING_DOCS',
       documents: [{ kind: 'AGREEMENT', status: 'VALIDATED' }, { kind: 'INSURANCE', status: 'VALIDATED' }],
     })
-    prisma.placement.update.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('unique constraint', {
-      code: 'P2002', clientVersion: Prisma.prismaVersion.client, meta: { target: ['studentId'] },
-    }))
+    const error = new Prisma.PrismaClientKnownRequestError('database error', {
+      code, clientVersion: Prisma.prismaVersion.client, meta: { target },
+    })
+    prisma.placement.update.mockRejectedValue(error)
+    await expect(service.activate(1)).rejects.toBe(error)
+  })
 
-    await expect(service.activate(1)).rejects.toThrow(ConflictException)
+  it('does not mask unexpected errors', async () => {
+    prisma.placement.findUnique.mockResolvedValue({
+      id: 1, status: 'PENDING_DOCS',
+      documents: [{ kind: 'AGREEMENT', status: 'VALIDATED' }, { kind: 'INSURANCE', status: 'VALIDATED' }],
+    })
+    const error = new Error('database unavailable')
+    prisma.placement.update.mockRejectedValue(error)
+    await expect(service.activate(1)).rejects.toBe(error)
   })
 
 })

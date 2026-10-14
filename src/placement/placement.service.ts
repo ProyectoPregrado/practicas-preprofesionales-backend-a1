@@ -1,9 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { DocumentKind, DocumentStatus, PlacementStatus, Role } from '@prisma/client'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { DocumentKind, DocumentStatus, PlacementStatus, Prisma, Role } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import type { UploadDocumentDto } from './dto/upload-document.dto'
 
 const REQUIRED_DOCS: DocumentKind[] = [DocumentKind.AGREEMENT, DocumentKind.INSURANCE]
+
+// PostgreSQL reports the partial index as its name or its single indexed column.
+function isActiveStudentConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false
+  const target = error.meta?.target
+  return target === 'placements_one_active_per_student'
+    || (Array.isArray(target) && target.length === 1 && target[0] === 'studentId')
+}
 
 @Injectable()
 export class PlacementService {
@@ -55,10 +63,18 @@ export class PlacementService {
       throw new BadRequestException(`faltan documentos validados: ${missing.join(', ')}`)
     }
 
-    return this.prisma.placement.update({
-      where: { id },
-      data: { status: PlacementStatus.ACTIVE },
-    })
+    try {
+      return await this.prisma.placement.update({
+        where: { id },
+        data: { status: PlacementStatus.ACTIVE },
+      })
+    } catch (error) {
+      // N-1: the database arbitrates concurrent activations; a prior read cannot.
+      if (isActiveStudentConflict(error)) {
+        throw new ConflictException('el estudiante ya tiene un placement activo')
+      }
+      throw error
+    }
   }
 
   findForStudent(studentId: number) {
