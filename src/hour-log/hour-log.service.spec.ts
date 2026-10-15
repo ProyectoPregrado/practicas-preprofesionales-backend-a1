@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HourLogService } from './hour-log.service'
 
 const prisma = {
+  $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+  $executeRaw: vi.fn(),
   hourLog: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -11,7 +13,7 @@ const prisma = {
     findMany: vi.fn(),
     aggregate: vi.fn(),
   },
-  placement: { findUnique: vi.fn() },
+  placement: { findUnique: vi.fn(), updateMany: vi.fn() },
 }
 
 describe('HourLogService', () => {
@@ -25,6 +27,7 @@ describe('HourLogService', () => {
   it('creates an hour log in SUBMITTED for an active placement', async () => {
     prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
     prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
 
     const result = await service.create(
       { placementId: 1, date: new Date('2026-04-01'), startTime: '08:00', endTime: '12:00', hours: 4, activity: 'Desarrollo de módulo de reportes' },
@@ -33,6 +36,52 @@ describe('HourLogService', () => {
 
     expect(result.status).toBe('SUBMITTED')
     expect(result.hours).toBe(4)
+  })
+
+  // E6-01: el tope es 8 horas por día, sumando todos los registros del estudiante en esa fecha.
+  describe('E6-01 — tope de horas por día', () => {
+    const dto = (hours: number) => ({
+      placementId: 1,
+      date: new Date('2026-04-01'),
+      startTime: '08:00',
+      endTime: '18:00',
+      hours,
+      activity: 'Jornada de práctica',
+    })
+
+    beforeEach(() => {
+      prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
+      prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
+    })
+
+    it('acepta un registro de exactamente 8 horas', async () => {
+      await expect(service.create(dto(8), 5)).resolves.toMatchObject({ hours: 8 })
+    })
+
+    it('rechaza un registro de 8.5 horas con el mensaje del rango', async () => {
+      await expect(service.create(dto(8.5), 5)).rejects.toThrow(/entre 0\.5 y 8/)
+      expect(prisma.hourLog.create).not.toHaveBeenCalled()
+    })
+
+    it('rechaza si, sumado a lo ya registrado ese día, pasa de 8 horas', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 6 } })
+
+      await expect(service.create(dto(3), 5)).rejects.toThrow(/no puede superar 8 horas \(ya tienes 6 registradas el 2026-04-01\)/)
+      expect(prisma.hourLog.create).not.toHaveBeenCalled()
+    })
+
+    it('permite completar el día justo en 8 horas (6 ya registradas + 2)', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 6 } })
+
+      await expect(service.create(dto(2), 5)).resolves.toMatchObject({ hours: 2 })
+    })
+
+    it('valida y escribe dentro del bloqueo por estudiante', async () => {
+      await service.create(dto(2), 5)
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('rejects an hour log with more hours than the service allows', async () => {
@@ -47,6 +96,8 @@ describe('HourLogService', () => {
   })
 
   it('approves a submitted hour log', async () => {
+    prisma.placement.findUnique.mockResolvedValue({ requiredHours: 240, status: 'ACTIVE' })
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 4 } })
     prisma.hourLog.findUnique
       .mockResolvedValueOnce({
         id: 99,
@@ -108,5 +159,60 @@ describe('HourLogService', () => {
     expect(prisma.hourLog.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ placement: { tutorId: 7 } }) }),
     )
+  })
+
+  // N-3: la plaza se completa al alcanzar requiredHours, bajo el bloqueo por plaza.
+  describe('N-3 — plaza COMPLETED al aprobar horas', () => {
+    beforeEach(() => {
+      prisma.hourLog.findUnique
+        .mockReset()
+        .mockResolvedValueOnce({ id: 99, placementId: 1, status: 'SUBMITTED', version: 1, placement: { tutorId: 7 } })
+        .mockResolvedValue({ id: 99, status: 'APPROVED', reviewedById: 7 })
+      prisma.hourLog.updateMany.mockResolvedValue({ count: 1 })
+      prisma.placement.findUnique.mockResolvedValue({ requiredHours: 240, status: 'ACTIVE' })
+      prisma.placement.updateMany.mockResolvedValue({ count: 1 })
+    })
+
+    it('al aprobar completa la plaza si las horas aprobadas alcanzan requiredHours', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 240 } })
+
+      await service.review(99, 'APPROVED' as never, 7)
+
+      expect(prisma.placement.updateMany).toHaveBeenCalledWith({
+        where: { id: 1, status: 'ACTIVE' },
+        data: { status: 'COMPLETED', version: { increment: 1 } },
+      })
+    })
+
+    it('toma el bloqueo de la plaza antes de escribir la aprobación', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 1 } })
+
+      await service.review(99, 'APPROVED' as never, 7)
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.hourLog.updateMany.mock.invocationCallOrder[0])
+    })
+
+    it('no completa la plaza por debajo del umbral', async () => {
+      prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 239.5 } })
+
+      await service.review(99, 'APPROVED' as never, 7)
+
+      expect(prisma.placement.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('rechazar horas no evalúa ni completa la plaza', async () => {
+      await service.review(99, 'REJECTED' as never, 7, 'no cuadra')
+
+      expect(prisma.hourLog.aggregate).not.toHaveBeenCalled()
+      expect(prisma.placement.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('si la revisión pierde la carrera (count 0) no completa la plaza', async () => {
+      prisma.hourLog.updateMany.mockResolvedValue({ count: 0 })
+
+      await expect(service.review(99, 'APPROVED' as never, 7)).rejects.toThrow(BadRequestException)
+      expect(prisma.placement.updateMany).not.toHaveBeenCalled()
+    })
   })
 })
