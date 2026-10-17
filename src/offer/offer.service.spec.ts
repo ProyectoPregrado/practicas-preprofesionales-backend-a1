@@ -5,9 +5,19 @@ import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { OfferService } from './offer.service'
 
 const prisma = {
-  offer: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn(), findMany: vi.fn() },
+  offer: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), updateMany: vi.fn(), create: vi.fn(), findMany: vi.fn() },
   application: { count: vi.fn(), findFirst: vi.fn() },
   user: { findUnique: vi.fn() },
+}
+
+// N-5: publish y close escriben con `updateMany` condicionado al estado y releen la fila.
+const mockConditionalWrite = (count = 1) => {
+  let written = {}
+  prisma.offer.updateMany.mockImplementation(({ data }) => {
+    written = data
+    return Promise.resolve({ count })
+  })
+  prisma.offer.findUniqueOrThrow.mockImplementation(() => Promise.resolve({ id: 1, ...written }))
 }
 
 // La oferta 1 es de la empresa 5. `OWNER` trabaja en esa empresa y `FOREIGN` en otra.
@@ -46,12 +56,27 @@ describe('OfferService', () => {
 
   it('publishes a DRAFT offer and stamps publishedAt', async () => {
     prisma.offer.findUnique.mockResolvedValue({ id: 1, status: 'DRAFT' })
-    prisma.offer.update.mockImplementation(({ data }) => Promise.resolve({ id: 1, ...data }))
+    mockConditionalWrite()
 
     const result = await service.publish(1, COORDINATOR, Role.COORDINATOR)
 
     expect(result.status).toBe('PUBLISHED')
     expect(result.publishedAt).toBeInstanceOf(Date)
+    expect(prisma.offer.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, status: 'DRAFT' },
+      data: { status: 'PUBLISHED', publishedAt: expect.any(Date) },
+    })
+  })
+
+  it.each([
+    ['publish', 'DRAFT', 'solo se publican ofertas en DRAFT'],
+    ['close', 'PUBLISHED', 'solo se cierran ofertas publicadas'],
+  ] as const)('%s: si otra llamada cambió el estado entre la lectura y la escritura, responde 400', async (name, from, message) => {
+    prisma.offer.findUnique.mockResolvedValue({ id: 1, status: from })
+    mockConditionalWrite(0)
+
+    await expect(service[name](1, COORDINATOR, Role.COORDINATOR)).rejects.toThrow(message)
+    expect(prisma.offer.findUniqueOrThrow).not.toHaveBeenCalled()
   })
 
   it('rejects publishing an offer that is not DRAFT', async () => {
@@ -99,7 +124,7 @@ describe('OfferService — pertenencia de la empresa (H-4)', () => {
     vi.resetAllMocks()
     service = new OfferService(prisma as never)
     prisma.offer.create.mockImplementation(({ data }) => Promise.resolve({ id: 100, ...data }))
-    prisma.offer.update.mockImplementation(({ data }) => Promise.resolve({ id: 1, ...data }))
+    mockConditionalWrite()
     prisma.user.findUnique.mockImplementation(({ where }) => Promise.resolve(usersById[where.id] ?? null))
   })
 
@@ -161,13 +186,13 @@ describe('OfferService — pertenencia de la empresa (H-4)', () => {
       const result = await call(OWNER, Role.COMPANY)
 
       expect(result.status).toBe(to)
-      expect(prisma.offer.update).toHaveBeenCalledTimes(1)
+      expect(prisma.offer.updateMany).toHaveBeenCalledTimes(1)
     })
 
     it('rechaza con 403 a una empresa ajena, sin escribir', async () => {
       await expect(call(FOREIGN, Role.COMPANY)).rejects.toThrow(ForbiddenException)
 
-      expect(prisma.offer.update).not.toHaveBeenCalled()
+      expect(prisma.offer.updateMany).not.toHaveBeenCalled()
     })
 
     it('responde 403 y no 400 a una empresa ajena aunque la oferta esté en otro estado', async () => {
@@ -186,7 +211,7 @@ describe('OfferService — pertenencia de la empresa (H-4)', () => {
     it.each([Role.STUDENT, Role.TUTOR])('rechaza al rol %s aunque llame al servicio directo', async (role) => {
       await expect(call(OWNER, role)).rejects.toThrow(ForbiddenException)
 
-      expect(prisma.offer.update).not.toHaveBeenCalled()
+      expect(prisma.offer.updateMany).not.toHaveBeenCalled()
     })
 
     it('responde 404 si la oferta no existe', async () => {
@@ -205,7 +230,7 @@ describe('OfferService — pertenencia de la empresa (H-4)', () => {
       expect(byUser[FOREIGN].status).toBe('rejected')
       expect((byUser[FOREIGN] as PromiseRejectedResult).reason).toBeInstanceOf(ForbiddenException)
       expect(byUser[OWNER].status).toBe('fulfilled')
-      expect(prisma.offer.update).toHaveBeenCalledTimes(1)
+      expect(prisma.offer.updateMany).toHaveBeenCalledTimes(1)
     })
   })
 })
