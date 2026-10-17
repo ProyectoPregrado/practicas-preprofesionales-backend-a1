@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { ApplicationStatus, OfferStatus, Role } from '@prisma/client'
+import { ApplicationStatus, OfferStatus, Prisma, Role } from '@prisma/client'
 import { PUBLIC_COMPANY_SELECT } from '../company/company.select'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateOfferDto } from './dto/create-offer.dto'
@@ -90,10 +90,7 @@ export class OfferService {
     if (offer.status !== OfferStatus.DRAFT) {
       throw new BadRequestException('solo se publican ofertas en DRAFT')
     }
-    return this.prisma.offer.update({
-      where: { id },
-      data: { status: OfferStatus.PUBLISHED, publishedAt: new Date() },
-    })
+    return this.transition(id, OfferStatus.DRAFT, { status: OfferStatus.PUBLISHED, publishedAt: new Date() }, 'solo se publican ofertas en DRAFT')
   }
 
   async close(id: number, userId: number, role: Role) {
@@ -103,7 +100,15 @@ export class OfferService {
     if (offer.status !== OfferStatus.PUBLISHED) {
       throw new BadRequestException('solo se cierran ofertas publicadas')
     }
-    return this.prisma.offer.update({ where: { id }, data: { status: OfferStatus.CLOSED } })
+    return this.transition(id, OfferStatus.PUBLISHED, { status: OfferStatus.CLOSED }, 'solo se cierran ofertas publicadas')
+  }
+
+  // N-5: el UPDATE queda condicionado al estado de origen, así que dos llamadas simultáneas no
+  // pueden ganar las dos: quien pierde ve `count = 0` y recibe el mismo 400 que si hubiera llegado tarde.
+  private async transition(id: number, from: OfferStatus, data: Prisma.OfferUpdateManyMutationInput, message: string) {
+    const { count } = await this.prisma.offer.updateMany({ where: { id, status: from }, data })
+    if (count === 0) throw new BadRequestException(message)
+    return this.prisma.offer.findUniqueOrThrow({ where: { id } })
   }
 
   // Cuenta las postulaciones ya aceptadas para una oferta.

@@ -55,12 +55,19 @@ borradores y tutor ajeno. Verificación de producto pendiente a cargo del fronte
 no se afirma haber observado un mensaje
 incorrecto. Un estudiante con postulación a una oferta cerrada debe seguir viéndola.
 
-## Sin sprint — Operaciones que todavía requieren caracterización
+--- Deuda Pagada
 
-OfferService.publish y close leen el estado antes de actualizar; no hay atomicidad
-entre ambas operaciones. El hallazgo está verificado por lectura; falta una prueba
-que caracterice sus efectos concurrentes. No se declara demostrado el fallo de
-concurrencia con solo esa lectura.
+## N-5 — publish y close de ofertas ya no ganan dos veces
+
+OfferService.publish y close leían el estado y después actualizaban en dos pasos. La
+regresión `src/offer/offer-state-race-e2e.spec.ts` (Postgres real, barrera sin `sleep`)
+demostró el fallo: dos llamadas simultáneas sobre la misma oferta terminaban las dos con
+éxito, y en publish la segunda pisaba `publishedAt`. Ahora el UPDATE queda condicionado
+al estado de origen (`updateMany`); quien pierde recibe el mismo 400 que si hubiera
+llegado tarde. El test falla sin el arreglo (2 de 2 en rojo) y pasa con él.
+
+Límite conocido: la lectura previa se conserva para el 404 y el 403; la garantía la da el
+UPDATE condicionado. Lo mismo vale para `apply` frente a un `close` simultáneo (ver N-2).
 
 --- Deuda Pagada
 
