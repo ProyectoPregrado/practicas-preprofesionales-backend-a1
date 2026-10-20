@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HourLogStatus, PlacementStatus, Role } from '@prisma/client'
+import { isoWeekLabel } from '../common/calendar-date'
 import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
 import { completePlacementIfReached, withPlacementApprovalLock } from './placement-completion'
 import { PrismaService } from '../prisma/prisma.service'
@@ -214,7 +215,7 @@ export class HourLogService {
         continue
       }
 
-      const week = this.isoWeekLabel(log.date)
+      const week = isoWeekLabel(log.date)
       const bucket = buckets.get(week) ?? { approvedHours: 0, submittedHours: 0, logsCount: 0 }
 
       if (log.status === HourLogStatus.APPROVED) {
@@ -257,25 +258,6 @@ export class HourLogService {
     })
 
     return summary
-  }
-
-  // D-02: cálculo manual de semana ISO 8601. Otra pieza de lógica que
-  // debería vivir en un helper de fechas compartido y en cambio vive aquí,
-  // pegada al resto de responsabilidades del servicio.
-  private isoWeekLabel(date: Date): string {
-    // Copiamos la fecha a UTC para no arrastrar el timezone del proceso.
-    const copy = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-
-    // Lunes = 1 ... domingo = 7, para poder mover la fecha al jueves de
-    // la misma semana ISO (regla estándar de cálculo de semana ISO 8601).
-    const isoDayNumber = copy.getUTCDay() === 0 ? 7 : copy.getUTCDay()
-    copy.setUTCDate(copy.getUTCDate() + 4 - isoDayNumber)
-
-    const yearStart = new Date(Date.UTC(copy.getUTCFullYear(), 0, 1))
-    const daysSinceYearStart = (copy.getTime() - yearStart.getTime()) / 86400000
-    const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7)
-
-    return `${copy.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`
   }
 
   // D-02: exporta el libro de horas a filas de CSV, en el mismo servicio

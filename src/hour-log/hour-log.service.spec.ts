@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { TIME_ZONES, useTimeZone } from '../test/time-zone'
 import { HourLogService } from './hour-log.service'
 
 const prisma = {
@@ -214,5 +215,44 @@ describe('HourLogService', () => {
       await expect(service.review(99, 'APPROVED' as never, 7)).rejects.toThrow(BadRequestException)
       expect(prisma.placement.updateMany).not.toHaveBeenCalled()
     })
+  })
+})
+
+// E6-02: la semana ISO sale del día calendario guardado (medianoche UTC), no de la zona del servidor.
+describe.each(TIME_ZONES)('HourLogService.weeklySummary — semana ISO (E6-02), zona %s', (zone) => {
+  useTimeZone(zone)
+  let service: HourLogService
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    service = new HourLogService(prisma as never)
+    prisma.placement.findUnique.mockResolvedValue({
+      id: 1,
+      requiredHours: 240,
+      startDate: new Date('2026-01-01'),
+      endDate: new Date('2027-01-31'),
+    })
+  })
+
+  const weeksOf = async (dates: string[]) => {
+    prisma.hourLog.findMany.mockResolvedValue(
+      dates.map((date, i) => ({ id: i + 1, date: new Date(date), hours: 4, status: 'APPROVED' })),
+    )
+    return (await service.weeklySummary(1)).map((row) => [row.week, row.logsCount])
+  }
+
+  it('un lunes y el domingo siguiente caen en la misma semana', async () => {
+    expect(await weeksOf(['2026-03-02', '2026-03-08'])).toEqual([['2026-W10', 2]])
+  })
+
+  it('el lunes siguiente abre la semana siguiente', async () => {
+    expect(await weeksOf(['2026-03-08', '2026-03-09'])).toEqual([
+      ['2026-W10', 1],
+      ['2026-W11', 1],
+    ])
+  })
+
+  it('respeta el borde de año: 2026-12-31 y 2027-01-01 son de la 2026-W53', async () => {
+    expect(await weeksOf(['2026-12-31', '2027-01-01'])).toEqual([['2026-W53', 2]])
   })
 })
