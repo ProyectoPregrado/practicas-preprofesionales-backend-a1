@@ -43,6 +43,10 @@ interface Rule {
 // Una nota ausente o por debajo del mínimo no alcanza. Un `NaN` tampoco: la comparación da falso.
 const meetsMinimum = (score: number | null): boolean => score !== null && score >= MIN_EVALUATION_SCORE
 
+// Se niega «alcanzó» en vez de comparar con `<`: con `NaN` ambas comparaciones dan falso, y la regla
+// original decía «horas insuficientes» en ese caso (el mismo motivo por el que `meetsMinimum` es positivo).
+const hoursReached = (input: AccreditationInput): boolean => input.approvedHours >= input.requiredHours
+
 // Aviso opcional de horas pendientes; cada regla elige cómo se llaman (sin revisar o de aprobación).
 const pendingNote = (input: AccreditationInput, label: string): string[] =>
   input.pendingHours > 0 ? [`hay ${input.pendingHours} horas ${label}`] : []
@@ -68,7 +72,7 @@ const RULES: Rule[] = [
   },
   {
     when: 'las horas aprobadas no alcanzan las requeridas',
-    applies: (input) => input.approvedHours < input.requiredHours,
+    applies: (input) => !hoursReached(input),
     decide: (input) => ({
       level: 'PENDIENTE',
       reasons: ['horas insuficientes', ...pendingNote(input, 'pendientes de aprobación')],
@@ -120,7 +124,7 @@ const RULES: Rule[] = [
   },
 ]
 
-// Si ninguna regla de arriba aplica, todo está en orden.
+// Si ninguna regla de arriba aplica, la plaza cumple todas las condiciones.
 const ACCREDITED: Decision = { level: 'ACREDITADO', reasons: [] }
 
 export function calculateAccreditationStatus(input: AccreditationInput): AccreditationResult {
