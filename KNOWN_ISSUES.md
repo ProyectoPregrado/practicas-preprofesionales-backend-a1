@@ -8,8 +8,8 @@ Si encuentras algo que no está acá, agrégalo. Casi seguro hay más.
 Revisión K-1 (backend), 14 de octubre de 2026, actualizada con develop 8229dee.
 E2-03, N-1, N-2, N-3, S-2 y D-11 ya están integradas en develop mediante los PR
 #29, #30, #32, #28, #26 y #27, respectivamente. Los estados siguientes reflejan esa base.
-D-02 sigue abierta: el servicio supera las 300 líneas y conserva las responsabilidades
-y comentarios D-02. No se considera pagada por haber añadido tests o arreglado horas.
+D-02 se separa por responsabilidad en esta rama (E6-03); ver su evidencia y el estado de
+integración más abajo. La actualización global de cierre sigue a cargo de Mabe.
 
 --- Deuda Pagada
 
@@ -75,15 +75,29 @@ no está cerrando el círculo. No tuvimos tiempo de sentarnos a entenderlo.
 
 Workaround actual: el coordinador borra los duplicados a mano.
 
---- Deuda pendiente
+--- Implementada en esta rama; integración pendiente
 
 ## D-02 · `HourLogService` se nos fue de las manos
 
 `src/hour-log/hour-log.service.ts`
 
-Empezó siendo el CRUD de horas y terminó haciendo validación, persistencia, notificación al
-tutor y agregación de reportes. Pasa las 300 líneas. Cada vez que hay que tocar algo ahí, hay
-que leerlo entero. Habría que partirlo por responsabilidad, pero nunca fue prioridad.
+E6-03 extrae `HourLogReportService`, `HourLogExportService` y
+`HourLogNotificationService`. `HourLogService` mantiene su contrato público y coordina las
+escrituras; las reglas compartidas siguen en `hour-rules.ts`. Los bloqueos por estudiante
+y plaza conservan sus transacciones. La notificación actual sigue siendo de consola.
+
+Hay pruebas de caracterización del avance, resumen semanal y CSV, además de composición
+de Nest y ausencia de notificación ante un commit fallido. Las pruebas PostgreSQL se
+adaptaron al constructor y quedan pendientes de ejecución en un entorno con base.
+Ver `docs/E6-03-responsabilidades.md`. No se declara integrada a `develop` todavía.
+
+## S-3b — Lint backend parcialmente corregido
+
+En esta rama baja de 16 hallazgos (12 errores, 4 advertencias) a 2 (1 error, 1 advertencia).
+Quedan las dos reglas de complejidad de `calculateAccreditationStatus`, asignadas a E5-02
+de Mauz, después de integrar E5-01 (PR #35 todavía abierto al verificarlo). No se ocultan
+con cambios de configuración. El lint global aún falla; ver `docs/S-3b-lint-backend.md`.
+
 --- Pruebas incorporadas; revisión E4 pendiente
 
 ## D-03 — Evaluaciones: pruebas incorporadas y revisión pendiente

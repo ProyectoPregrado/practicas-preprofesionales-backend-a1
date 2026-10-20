@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { AccreditationService } from './accreditation.service'
 
 const prisma = {
@@ -26,6 +27,7 @@ describe('AccreditationService — E3-06 (no filtrar datos sensibles)', () => {
   })
 
   it('el reporte nunca incluye el password del estudiante, aunque la consulta lo trajera', async () => {
+    const privatePassword = randomUUID()
     // Simula el escenario que el bug original permitía: la fila que devuelve la
     // base trae el usuario completo. El test tiene que fallar si el servicio
     // vuelve a filtrar ese objeto entero al resultado.
@@ -34,7 +36,7 @@ describe('AccreditationService — E3-06 (no filtrar datos sensibles)', () => {
         id: 1,
         requiredHours: 300,
         status: 'ACTIVE',
-        student: { fullName: 'Estudiante de Prueba', password: '$2b$10$hash-secreto', email: 'e@miyura.com' },
+        student: { fullName: 'Estudiante de Prueba', password: privatePassword, email: 'e@miyura.com' },
         documents: [],
         evaluations: [],
       },
@@ -42,7 +44,7 @@ describe('AccreditationService — E3-06 (no filtrar datos sensibles)', () => {
 
     const result = await service.reportForPeriod('2026-1')
 
-    expect(JSON.stringify(result)).not.toContain('hash-secreto')
+    expect(JSON.stringify(result)).not.toContain(privatePassword)
     expect(JSON.stringify(result)).not.toMatch(/"password"/)
   })
 })

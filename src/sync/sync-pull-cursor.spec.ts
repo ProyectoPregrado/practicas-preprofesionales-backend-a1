@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { PrismaService } from '../prisma/prisma.service'
 import { encodeCheckpoint } from './checkpoint'
@@ -22,7 +23,7 @@ describe('SyncService.pull — cursor en placements (S-2, Postgres real)', () =>
     await prisma.$connect()
     const user = async (role: 'STUDENT' | 'TUTOR', name: string) => {
       const row = await prisma.user.create({
-        data: { email: `${name}-${tag}@miyura.com`, password: 'x', fullName: name, role },
+        data: { email: `${name}-${tag}@miyura.com`, password: randomUUID(), fullName: name, role },
       })
       created.users.push(row.id)
       return row

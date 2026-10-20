@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HourLogService } from './hour-log.service'
+import { HourLogReportService } from './hour-log-report.service'
+import { HourLogExportService } from './hour-log-export.service'
 
 const prisma = {
   $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -18,10 +20,16 @@ const prisma = {
 
 describe('HourLogService', () => {
   let service: HourLogService
+  const notifications = { notifyTutor: vi.fn() }
 
   beforeEach(() => {
     vi.clearAllMocks()
-    service = new HourLogService(prisma as never)
+    service = new HourLogService(
+      prisma as never,
+      notifications,
+      new HourLogReportService(prisma as never),
+      new HourLogExportService(prisma as never),
+    )
   })
 
   it('creates an hour log in SUBMITTED for an active placement', async () => {
@@ -36,6 +44,20 @@ describe('HourLogService', () => {
 
     expect(result.status).toBe('SUBMITTED')
     expect(result.hours).toBe(4)
+    expect(notifications.notifyTutor).toHaveBeenCalledTimes(1)
+    expect(notifications.notifyTutor).toHaveBeenCalledWith(7, 99)
+  })
+
+  it('no notifica al tutor si falla el commit de la transacción', async () => {
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
+    prisma.$transaction.mockRejectedValueOnce(new Error('commit fallido'))
+
+    await expect(service.create({
+      placementId: 1, date: new Date('2026-04-01'), startTime: '08:00', endTime: '12:00',
+      hours: 4, activity: 'Jornada de práctica',
+    }, 5)).rejects.toThrow('commit fallido')
+
+    expect(notifications.notifyTutor).not.toHaveBeenCalled()
   })
 
   // E6-01: el tope es 8 horas por día, sumando todos los registros del estudiante en esa fecha.
@@ -62,6 +84,7 @@ describe('HourLogService', () => {
     it('rechaza un registro de 8.5 horas con el mensaje del rango', async () => {
       await expect(service.create(dto(8.5), 5)).rejects.toThrow(/entre 0\.5 y 8/)
       expect(prisma.hourLog.create).not.toHaveBeenCalled()
+      expect(notifications.notifyTutor).not.toHaveBeenCalled()
     })
 
     it('rechaza si, sumado a lo ya registrado ese día, pasa de 8 horas', async () => {

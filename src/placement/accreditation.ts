@@ -30,7 +30,7 @@ export interface AccreditationResult {
 // ESLint la marca con `complexity` (umbral 10). No refactorizar.
 export function calculateAccreditationStatus(input: AccreditationInput): AccreditationResult {
   const reasons: string[] = []
-  let level: AccreditationLevel = 'PENDIENTE'
+  let level: AccreditationLevel
   const percentage = Math.round((input.approvedHours / input.requiredHours) * 100)
 
   if (input.placementStatus === 'ABANDONED') {
