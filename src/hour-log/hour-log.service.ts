@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HourLogStatus, PlacementStatus, Role } from '@prisma/client'
-import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
+import { isoWeekLabel } from '../common/calendar-date'
+import { dailyHoursError, hourDateError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
 import { completePlacementIfReached, withPlacementApprovalLock } from './placement-completion'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateHourLogDto } from './dto/create-hour-log.dto'
@@ -42,7 +43,11 @@ export class HourLogService {
     const rangeError = hoursRangeError(dto.hours) ?? timeOrderError(dto.startTime, dto.endTime)
     if (rangeError) throw new BadRequestException(rangeError)
 
-    // La fecha del registro llega desde el cliente y se persiste tal como fue recibida.
+    // E6-02: la fecha (ya normalizada a día calendario por el DTO) tiene que estar dentro de la práctica
+    // y no puede ser futura.
+    const dateError = hourDateError(dto.date, placement)
+    if (dateError) throw new BadRequestException(dateError)
+
     const created = await withStudentHoursLock(this.prisma, studentId, async (tx) => {
       const dailyError = await dailyHoursError(tx, studentId, dto.date, dto.hours)
       if (dailyError) throw new BadRequestException(dailyError)
@@ -214,7 +219,7 @@ export class HourLogService {
         continue
       }
 
-      const week = this.isoWeekLabel(log.date)
+      const week = isoWeekLabel(log.date)
       const bucket = buckets.get(week) ?? { approvedHours: 0, submittedHours: 0, logsCount: 0 }
 
       if (log.status === HourLogStatus.APPROVED) {
@@ -257,25 +262,6 @@ export class HourLogService {
     })
 
     return summary
-  }
-
-  // D-02: cálculo manual de semana ISO 8601. Otra pieza de lógica que
-  // debería vivir en un helper de fechas compartido y en cambio vive aquí,
-  // pegada al resto de responsabilidades del servicio.
-  private isoWeekLabel(date: Date): string {
-    // Copiamos la fecha a UTC para no arrastrar el timezone del proceso.
-    const copy = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-
-    // Lunes = 1 ... domingo = 7, para poder mover la fecha al jueves de
-    // la misma semana ISO (regla estándar de cálculo de semana ISO 8601).
-    const isoDayNumber = copy.getUTCDay() === 0 ? 7 : copy.getUTCDay()
-    copy.setUTCDate(copy.getUTCDate() + 4 - isoDayNumber)
-
-    const yearStart = new Date(Date.UTC(copy.getUTCFullYear(), 0, 1))
-    const daysSinceYearStart = (copy.getTime() - yearStart.getTime()) / 86400000
-    const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7)
-
-    return `${copy.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`
   }
 
   // D-02: exporta el libro de horas a filas de CSV, en el mismo servicio

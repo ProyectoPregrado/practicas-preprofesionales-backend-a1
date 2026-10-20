@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { TIME_ZONES, useTimeZone } from '../test/time-zone'
 import { AccreditationService } from './accreditation.service'
 
 const prisma = {
@@ -44,5 +45,32 @@ describe('AccreditationService — E3-06 (no filtrar datos sensibles)', () => {
 
     expect(JSON.stringify(result)).not.toContain('hash-secreto')
     expect(JSON.stringify(result)).not.toMatch(/"password"/)
+  })
+})
+
+// E6-02: una fecha de negocio es un día calendario guardado como medianoche UTC. Los límites del período
+// no pueden depender de la zona horaria del servidor.
+describe.each(TIME_ZONES)('AccreditationService — límites del período (E6-02), zona %s', (zone) => {
+  useTimeZone(zone)
+  let service: AccreditationService
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma.placement.findMany.mockResolvedValue([])
+    service = new AccreditationService(prisma as never)
+  })
+
+  const boundsOf = async (period: string) => {
+    await service.reportForPeriod(period)
+    const { startDate } = prisma.placement.findMany.mock.calls[0][0].where
+    return [startDate.gte.toISOString(), startDate.lt.toISOString()]
+  }
+
+  it('el período AAAA-1 va del 1 de enero al 1 de julio, medianoche UTC', async () => {
+    expect(await boundsOf('2026-1')).toEqual(['2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'])
+  })
+
+  it('el período AAAA-2 va del 1 de julio al 1 de enero siguiente, medianoche UTC', async () => {
+    expect(await boundsOf('2026-2')).toEqual(['2026-07-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z'])
   })
 })

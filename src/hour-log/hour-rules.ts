@@ -1,4 +1,5 @@
 import { HourLogStatus, type Prisma, type PrismaClient } from '@prisma/client'
+import { calendarDayInZone, formatDay, getInstitutionTimeZone } from '../common/calendar-date'
 
 // E6-01 / D-06: una sola definición de la regla de horas. Antes vivía en tres sitios con tres
 // topes distintos (DTO 12, servicio 10, formulario 8). La coordinación definió el tope: 8 horas por
@@ -26,6 +27,23 @@ function toMinutes(time: string): number {
 
 export function timeOrderError(startTime: string, endTime: string): string | null {
   return toMinutes(startTime) < toMinutes(endTime) ? null : 'la hora de inicio debe ser anterior a la de fin'
+}
+
+// E6-02: la fecha de un registro tiene que caer dentro de los días de la práctica (extremos incluidos).
+export function dateRangeError(date: Date, practice: { startDate: Date; endDate: Date }): string | null {
+  if (date >= practice.startDate && date <= practice.endDate) return null
+  return `la fecha debe estar entre ${formatDay(practice.startDate)} y ${formatDay(practice.endDate)}, los días de la práctica`
+}
+
+// E6-02: no se registran horas de días que todavía no llegaron. «Hoy» es el de la zona de la institución.
+export function futureDateError(date: Date, now: Date = new Date()): string | null {
+  const today = calendarDayInZone(now, getInstitutionTimeZone())
+  return date <= today ? null : `no se pueden registrar horas con fecha futura (hoy es ${formatDay(today)})`
+}
+
+// Primero el rango (dice cuál es el válido) y después la fecha futura.
+export function hourDateError(date: Date, practice: { startDate: Date; endDate: Date }, now?: Date): string | null {
+  return dateRangeError(date, practice) ?? futureDateError(date, now)
 }
 
 type HourLogDb = Pick<PrismaClient | Prisma.TransactionClient, 'hourLog'>

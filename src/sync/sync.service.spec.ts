@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SyncService } from './sync.service'
 import type { SyncOperationInput } from './dto/push.dto'
+
+// E6-02: las fechas de un registro tienen que caer dentro de la práctica; estas plazas simuladas cubren abril de 2026.
+const PRACTICE = { startDate: new Date('2026-03-01'), endDate: new Date('2026-07-31') }
 
 const prisma = {
   $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -128,7 +131,7 @@ describe('SyncService — pull', () => {
   })
 
   it('crea un registro hourLog cuando la operación es válida', async () => {
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, ...PRACTICE })
     prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
 
     const result = await service.push(5, [
@@ -154,7 +157,7 @@ describe('SyncService — pull', () => {
   })
 
   it('D-01: un reintento con el mismo clientOpId NO aplica la operación dos veces', async () => {
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, ...PRACTICE })
     prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
 
     const op: SyncOperationInput = {
@@ -192,7 +195,7 @@ describe('SyncService — pull', () => {
   })
 
   it('D-01: el resultado del reintento es el mismo que el original', async () => {
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, ...PRACTICE })
     prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
 
     const op: SyncOperationInput = {
@@ -231,7 +234,7 @@ describe('SyncService — pull', () => {
   // -------------------------------------------------------------------------
 
   it('E1-03b: dos envíos concurrentes con el mismo clientOpId no crean dos hourLog', async () => {
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, ...PRACTICE })
     prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
 
     const op: SyncOperationInput = {
@@ -308,7 +311,7 @@ describe('SyncService — pull', () => {
   it('actualiza un hourLog existente', async () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 1,
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
     })
     prisma.hourLog.update.mockResolvedValue({ id: 1, version: 2 })
 
@@ -329,7 +332,7 @@ describe('SyncService — pull', () => {
   it('soft-deletea un hourLog con op=delete', async () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 1,
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
     })
     prisma.hourLog.update.mockResolvedValue({ id: 1, version: 2, deletedAt: new Date() })
 
@@ -353,7 +356,7 @@ describe('SyncService — pull', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 20,
       status: 'APPROVED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T10:00:00.000Z'),
     })
 
@@ -377,7 +380,7 @@ describe('SyncService — pull', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 21,
       status: 'REJECTED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T10:00:00.000Z'),
     })
 
@@ -406,7 +409,7 @@ describe('SyncService — pull', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 10,
       status: 'APPROVED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T10:00:00.000Z'),
     })
 
@@ -430,7 +433,7 @@ describe('SyncService — pull', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 11,
       status: 'REJECTED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T10:00:00.000Z'),
     })
 
@@ -454,7 +457,7 @@ describe('SyncService — pull', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 12,
       status: 'SUBMITTED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T14:00:00.000Z'), // Servidor más reciente
     })
 
@@ -485,7 +488,7 @@ describe('SyncService — pull', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 13,
       status: 'SUBMITTED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T10:00:00.000Z'),
     })
     prisma.hourLog.update.mockResolvedValue({ id: 13, version: 2, status: 'SUBMITTED' })
@@ -527,7 +530,7 @@ describe('SyncService — tope de horas por día (E6-01)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5 })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, ...PRACTICE })
     prisma.hourLog.create.mockResolvedValue({ id: 77, version: 1 })
     service = new SyncService(prisma as never)
   })
@@ -563,7 +566,7 @@ describe('SyncService — tope de horas por día (E6-01)', () => {
     prisma.hourLog.findUnique.mockResolvedValue({
       id: 31,
       status: 'SUBMITTED',
-      placement: { studentId: 5 },
+      placement: { studentId: 5, ...PRACTICE },
       updatedAt: new Date('2026-04-02T10:00:00.000Z'),
     })
     prisma.hourLog.update.mockResolvedValue({ id: 31, version: 2 })
@@ -582,5 +585,97 @@ describe('SyncService — tope de horas por día (E6-01)', () => {
     expect(prisma.hourLog.aggregate).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ id: { not: 31 } }) }),
     )
+  })
+})
+
+// E6-02: el sync aplica la misma regla de fecha que POST /hour-logs, y normaliza lo que manda el cliente.
+describe('SyncService: fecha del registro (E6-02)', () => {
+  let service: SyncService
+
+  const createOp = (date: string, clientOpId: string): SyncOperationInput => ({
+    clientOpId,
+    entity: 'hourLog',
+    op: 'create',
+    baseVersion: null,
+    payload: { placementId: 1, date, startTime: '08:00', endTime: '12:00', hours: 4, activity: 'Soporte' },
+  })
+
+  const updateOp = (date: string, clientOpId: string): SyncOperationInput => ({
+    clientOpId,
+    entity: 'hourLog',
+    op: 'update',
+    baseVersion: 1,
+    payload: { id: 31, date, startTime: '08:00', endTime: '12:00', hours: 4, activity: 'Soporte' },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T15:00:00Z'))
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, ...PRACTICE })
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
+    prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 77, ...data }))
+    prisma.hourLog.findUnique.mockResolvedValue({
+      id: 31,
+      status: 'SUBMITTED',
+      placement: { studentId: 5, ...PRACTICE },
+      updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+    })
+    prisma.hourLog.update.mockResolvedValue({ id: 31, version: 2 })
+    service = new SyncService(prisma as never)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('rechaza crear fuera de la práctica, con el rango válido y sin escribir', async () => {
+    const { results } = await service.push(5, [createOp('2026-08-05', 'e6-02-aaaa-0001')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toBe('la fecha debe estar entre 2026-03-01 y 2026-07-31, los días de la práctica')
+    expect(prisma.hourLog.create).not.toHaveBeenCalled()
+  })
+
+  it('rechaza crear con fecha futura aunque esté dentro de la práctica', async () => {
+    vi.setSystemTime(new Date('2026-04-10T15:00:00Z'))
+
+    const { results } = await service.push(5, [createOp('2026-04-11', 'e6-02-aaaa-0002')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toBe('no se pueden registrar horas con fecha futura (hoy es 2026-04-10)')
+    expect(prisma.hourLog.create).not.toHaveBeenCalled()
+  })
+
+  it('rechaza una fecha que no existe', async () => {
+    const { results } = await service.push(5, [createOp('2026-02-31', 'e6-02-aaaa-0003')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toBe('la fecha no es válida')
+  })
+
+  it('un instante con offset se guarda como el día de la zona de la institución', async () => {
+    const { results } = await service.push(5, [createOp('2026-04-02T22:00:00-05:00', 'e6-02-aaaa-0004')])
+
+    expect(results[0].status).toBe('applied')
+    expect(prisma.hourLog.create.mock.calls[0][0].data.date.toISOString()).toBe('2026-04-02T00:00:00.000Z')
+  })
+
+  it('rechaza editar a una fecha fuera de la práctica, sin escribir', async () => {
+    const { results } = await service.push(5, [updateOp('2026-09-01', 'e6-02-aaaa-0005')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toMatch(/la fecha debe estar entre 2026-03-01 y 2026-07-31/)
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
+  })
+
+  it('rechaza editar a una fecha futura', async () => {
+    vi.setSystemTime(new Date('2026-04-10T15:00:00Z'))
+
+    const { results } = await service.push(5, [updateOp('2026-04-30', 'e6-02-aaaa-0006')])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[0].reason).toMatch(/fecha futura/)
+    expect(prisma.hourLog.update).not.toHaveBeenCalled()
   })
 })

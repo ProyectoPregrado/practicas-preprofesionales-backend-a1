@@ -79,8 +79,10 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
           studentId: student.id,
           tutorId: tutor.id,
           companyId: company.id,
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 60),
+          // E6-02: mismos días que el seed (marzo a julio de 2026), para que una fecha de abril sea válida
+          // tanto con la plaza sembrada como con la que se crea aquí.
+          startDate: new Date('2026-03-01'),
+          endDate: new Date('2026-07-31'),
           requiredHours: 240,
           status: 'ACTIVE',
         },
@@ -268,7 +270,7 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
             baseVersion: 1,
             payload: {
               id: hourLogId,
-              date: '2026-09-22',
+              date: '2026-04-15',
               startTime: '08:00',
               endTime: '12:00',
               hours: 4,
@@ -301,7 +303,7 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
             baseVersion: 1,
             payload: {
               id: hourLogId,
-              date: '2026-09-22',
+              date: '2026-04-15',
               startTime: '08:00',
               endTime: '12:00',
               hours: 4,
