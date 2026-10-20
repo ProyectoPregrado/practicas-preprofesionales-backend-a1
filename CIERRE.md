@@ -3,7 +3,7 @@
 > Borrador del Sprint 4. Se completa al cierre con las cifras finales y lo que cada integrante aporte.
 
 ## Qué cerramos
-Cifras verificadas el 17 de octubre sobre develop: backend 288 pruebas y 80,6 % de cobertura de líneas (al inicio, 33 %); frontend 159 pruebas y 58,6 % (al inicio, 16 %). No incluyen los PR abiertos.
+Cifras verificadas el 17 de octubre sobre develop: backend 288 pruebas y 80,6 % de cobertura de líneas (al inicio, 33 %); frontend 159 pruebas y 52,1 % de cobertura de líneas (al inicio, 16 %). No incluyen los PR abiertos.
 
 - **E1 Sincronización offline:** sin pérdida ni duplicados, también con envíos concurrentes (E1-03b).
 - **E3 Seguridad:** permisos por endpoint, un tutor o una empresa solo tocan lo suyo, sesión con expiración y refresh con rotación, `JWT_SECRET` obligatorio.
