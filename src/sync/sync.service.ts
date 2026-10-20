@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
 import { normalizeCalendarDay } from '../common/calendar-date'
 import { dailyHoursError, hourDateError, hoursRangeError, timeOrderError, withStudentHoursLock } from '../hour-log/hour-rules'
 import { PrismaService } from '../prisma/prisma.service'
@@ -205,7 +206,10 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
     })
   }
 
-  private async handleUpdateHourLog(existing: any, op: SyncOperationInput): Promise<SyncOperationResult> {
+  private async handleUpdateHourLog(
+    existing: Prisma.HourLogGetPayload<{ include: { placement: true } }>,
+    op: SyncOperationInput,
+  ): Promise<SyncOperationResult> {
     // E1-04: Resolución basada en marca temporal más reciente cuando está en DRAFT o SUBMITTED
     if (op.payload.updatedAt) {
       const clientUpdatedAt = new Date(String(op.payload.updatedAt)).getTime()
@@ -232,7 +236,7 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
       timeOrderError(startTime, endTime)
     if (ruleError) return { clientOpId: op.clientOpId, status: 'rejected', server: existing as never, reason: ruleError }
 
-    const studentId = existing.placement.studentId as number
+    const studentId = existing.placement.studentId
     return withStudentHoursLock(this.prisma, studentId, async (tx): Promise<SyncOperationResult> => {
       const dailyError = await dailyHoursError(tx, studentId, date, hours, existing.id)
       if (dailyError) return { clientOpId: op.clientOpId, status: 'rejected', server: existing as never, reason: dailyError }

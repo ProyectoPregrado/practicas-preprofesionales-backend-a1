@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { describe, beforeAll, afterAll, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -15,7 +16,7 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
 
   // Helper: asegura que existe un placement de prueba y devuelve su ID
   async function ensurePlacement(): Promise<number> {
-    let placement = (await prisma.placement.findFirst()) as any;
+    let placement = await prisma.placement.findFirst();
 
     if (!placement) {
       const student = await prisma.user.upsert({
@@ -23,7 +24,7 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
         update: {},
         create: {
           email: 'student_e2e@miyura.com',
-          password: 'hashedpassword123',
+          password: randomUUID(),
           fullName: 'Estudiante E2E Test',
           role: 'STUDENT',
         },
@@ -34,7 +35,7 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
         update: {},
         create: {
           email: 'tutor_e2e@miyura.com',
-          password: 'hashedpassword123',
+          password: randomUUID(),
           fullName: 'Tutor E2E Test',
           role: 'TUTOR',
         },
@@ -146,8 +147,8 @@ describe('SyncController (e2e) - E1-04 Integración', () => {
       await app.init();
       placementId = await ensurePlacement();
     } catch (error) {
-      // Si PostgreSQL no está disponible (Docker apagado), los tests se saltan
-      console.warn('E2E tests skipped: PostgreSQL not available. Start with `docker-compose up -d`');
+      // Un fallo de setup debe hacer fallar la suite, nunca aparentar pruebas aprobadas.
+      throw new Error('No se pudo preparar la suite E1-04; comprueba PostgreSQL y sus migraciones', { cause: error });
     }
   }, 30000);
 

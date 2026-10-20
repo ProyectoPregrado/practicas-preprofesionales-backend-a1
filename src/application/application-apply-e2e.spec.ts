@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import { ConflictException, NotFoundException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { OfferService } from '../offer/offer.service'
@@ -21,7 +22,7 @@ describe('ApplicationService.apply (N-2, Postgres real)', () => {
     await prisma.$connect()
     studentId = (
       await prisma.user.create({
-        data: { email: `est-${tag}@miyura.com`, password: 'x', fullName: 'Estudiante N-2', role: 'STUDENT' },
+        data: { email: `est-${tag}@miyura.com`, password: randomUUID(), fullName: 'Estudiante N-2', role: 'STUDENT' },
       })
     ).id
     companyId = (

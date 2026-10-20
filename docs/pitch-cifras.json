@@ -1,0 +1,57 @@
+{
+  "measuredAt": "2026-10-20T03:54:19.483Z",
+  "note": "Los resultados corresponden a los comandos y alcances documentados en pitch-demo-anthony.md. Los hashes de fuentes identifican el árbol medido, incluidos cambios sin commit.",
+  "backend": {
+    "commit": "5df1edf6db0fccc1735f08a55e7348b4010d7ff9",
+    "sourceSha256": "3c69410cf332debe1a71e541e6ccee8108668f2dda17531cf970b8bd8638db90",
+    "sourceFiles": 96,
+    "tests": {
+      "reportSha256": "d4d08bc575a06832c4a9fb224839f0b5960b0ddef7a384b9ea18687efec9f1f7",
+      "startedAt": "2026-10-20T03:46:56.231Z",
+      "success": true,
+      "files": 24,
+      "total": 246,
+      "passed": 246,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    }
+  },
+  "frontend": {
+    "commit": "4feb779033bc26e1c51c1019f525caad6e51cb37",
+    "sourceSha256": "443050e82c17eaf3a51f01afa2acb19d647f163fe6caf02d874d09cdc4c011c1",
+    "sourceFiles": 110,
+    "tests": {
+      "reportSha256": "851e55d8a6e61e13ff5d89a2326fa6e0dcf8ef509824570eeefbdf8d234c43ec",
+      "startedAt": "2026-10-20T03:46:58.124Z",
+      "success": true,
+      "files": 36,
+      "total": 180,
+      "passed": 180,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    }
+  },
+  "backendLint": {
+    "reportSha256": "4869e0cae5c3c0cb7a3a0e90e8f7833af92dde89094af1e5e573150db3a8bca2",
+    "errors": 1,
+    "warnings": 1,
+    "findings": [
+      {
+        "file": "src/placement/accreditation.ts",
+        "line": 31,
+        "severity": 1,
+        "rule": "complexity",
+        "message": "Function 'calculateAccreditationStatus' has a complexity of 17. Maximum allowed is 10."
+      },
+      {
+        "file": "src/placement/accreditation.ts",
+        "line": 31,
+        "severity": 2,
+        "rule": "sonarjs/cognitive-complexity",
+        "message": "Refactor this function to reduce its Cognitive Complexity from 84 to the 15 allowed."
+      }
+    ]
+  }
+}
