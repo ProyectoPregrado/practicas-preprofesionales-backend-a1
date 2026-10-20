@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HourLogStatus, PlacementStatus, Role } from '@prisma/client'
 import { isoWeekLabel } from '../common/calendar-date'
-import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
+import { dailyHoursError, hourDateError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
 import { completePlacementIfReached, withPlacementApprovalLock } from './placement-completion'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateHourLogDto } from './dto/create-hour-log.dto'
@@ -43,7 +43,11 @@ export class HourLogService {
     const rangeError = hoursRangeError(dto.hours) ?? timeOrderError(dto.startTime, dto.endTime)
     if (rangeError) throw new BadRequestException(rangeError)
 
-    // La fecha del registro llega desde el cliente y se persiste tal como fue recibida.
+    // E6-02: la fecha (ya normalizada a día calendario por el DTO) tiene que estar dentro de la práctica
+    // y no puede ser futura.
+    const dateError = hourDateError(dto.date, placement)
+    if (dateError) throw new BadRequestException(dateError)
+
     const created = await withStudentHoursLock(this.prisma, studentId, async (tx) => {
       const dailyError = await dailyHoursError(tx, studentId, dto.date, dto.hours)
       if (dailyError) throw new BadRequestException(dailyError)

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from '../hour-log/hour-rules'
+import { normalizeCalendarDay } from '../common/calendar-date'
+import { dailyHoursError, hourDateError, hoursRangeError, timeOrderError, withStudentHoursLock } from '../hour-log/hour-rules'
 import { PrismaService } from '../prisma/prisma.service'
 import { type Checkpoint, decodeCheckpoint, encodeCheckpoint } from './checkpoint'
 import type { SyncOperationInput, SyncOperationResult } from './dto/push.dto'
@@ -175,10 +176,14 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
 
     // E6-01: el sync aplicaba horas sin validarlas. Ahora usa la misma regla que POST /hour-logs.
     const hours = Number(op.payload.hours)
-    const date = new Date(String(op.payload.date))
+    // E6-02: misma normalización y misma regla de fecha que POST /hour-logs.
+    const date = normalizeCalendarDay(op.payload.date)
     const startTime = String(op.payload.startTime)
     const endTime = String(op.payload.endTime)
-    const ruleError = hoursRangeError(hours) ?? timeOrderError(startTime, endTime)
+    const ruleError =
+      (Number.isNaN(date.getTime()) ? 'la fecha no es válida' : hourDateError(date, placement)) ??
+      hoursRangeError(hours) ??
+      timeOrderError(startTime, endTime)
     if (ruleError) return { clientOpId: op.clientOpId, status: 'rejected', server: null, reason: ruleError }
 
     return withStudentHoursLock(this.prisma, userId, async (tx): Promise<SyncOperationResult> => {
@@ -218,10 +223,13 @@ private async applyOperation(userId: number, op: SyncOperationInput): Promise<Sy
 
     // E6-01: misma regla que en la creación; al editar, el registro no se cuenta a sí mismo.
     const hours = Number(op.payload.hours)
-    const date = new Date(String(op.payload.date))
+    const date = normalizeCalendarDay(op.payload.date)
     const startTime = String(op.payload.startTime)
     const endTime = String(op.payload.endTime)
-    const ruleError = hoursRangeError(hours) ?? timeOrderError(startTime, endTime)
+    const ruleError =
+      (Number.isNaN(date.getTime()) ? 'la fecha no es válida' : hourDateError(date, existing.placement)) ??
+      hoursRangeError(hours) ??
+      timeOrderError(startTime, endTime)
     if (ruleError) return { clientOpId: op.clientOpId, status: 'rejected', server: existing as never, reason: ruleError }
 
     const studentId = existing.placement.studentId as number

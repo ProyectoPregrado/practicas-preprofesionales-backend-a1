@@ -1,7 +1,10 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TIME_ZONES, useTimeZone } from '../test/time-zone'
 import { HourLogService } from './hour-log.service'
+
+// E6-02: las fechas de un registro tienen que caer dentro de la práctica; estas plazas simuladas cubren abril de 2026.
+const PRACTICE = { startDate: new Date('2026-03-01'), endDate: new Date('2026-07-31') }
 
 const prisma = {
   $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -26,7 +29,7 @@ describe('HourLogService', () => {
   })
 
   it('creates an hour log in SUBMITTED for an active placement', async () => {
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE', ...PRACTICE })
     prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
     prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
 
@@ -51,7 +54,7 @@ describe('HourLogService', () => {
     })
 
     beforeEach(() => {
-      prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
+      prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE', ...PRACTICE })
       prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
       prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
     })
@@ -86,7 +89,7 @@ describe('HourLogService', () => {
   })
 
   it('rejects an hour log with more hours than the service allows', async () => {
-    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE' })
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE', ...PRACTICE })
 
     await expect(
       service.create(
@@ -254,5 +257,51 @@ describe.each(TIME_ZONES)('HourLogService.weeklySummary — semana ISO (E6-02), 
 
   it('respeta el borde de año: 2026-12-31 y 2027-01-01 son de la 2026-W53', async () => {
     expect(await weeksOf(['2026-12-31', '2027-01-01'])).toEqual([['2026-W53', 2]])
+  })
+})
+
+// E6-02: la fecha del registro cae dentro de la práctica y no es futura.
+describe('HourLogService.create: fecha del registro (E6-02)', () => {
+  let service: HourLogService
+  const create = (date: string) =>
+    service.create(
+      { placementId: 1, date: new Date(date), startTime: '08:00', endTime: '12:00', hours: 4, activity: 'Desarrollo de reportes' },
+      5,
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T15:00:00Z'))
+    service = new HourLogService(prisma as never)
+    prisma.placement.findUnique.mockResolvedValue({ id: 1, studentId: 5, tutorId: 7, status: 'ACTIVE', ...PRACTICE })
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 0 } })
+    prisma.hourLog.create.mockImplementation(({ data }) => Promise.resolve({ id: 99, ...data }))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it.each(['2026-02-28', '2026-08-01'])('rechaza %s, fuera de la práctica, con el rango válido y sin escribir', async (date) => {
+    await expect(create(date)).rejects.toThrow('la fecha debe estar entre 2026-03-01 y 2026-07-31, los días de la práctica')
+    expect(prisma.hourLog.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['2026-03-01', '2026-07-31'])('acepta %s, un extremo de la práctica', async (date) => {
+    await expect(create(date)).resolves.toMatchObject({ status: 'SUBMITTED' })
+  })
+
+  it('rechaza una fecha futura aunque esté dentro de la práctica', async () => {
+    vi.setSystemTime(new Date('2026-04-10T15:00:00Z'))
+
+    await expect(create('2026-04-11')).rejects.toThrow('no se pueden registrar horas con fecha futura (hoy es 2026-04-10)')
+    expect(prisma.hourLog.create).not.toHaveBeenCalled()
+  })
+
+  it('acepta hoy', async () => {
+    vi.setSystemTime(new Date('2026-04-10T15:00:00Z'))
+
+    await expect(create('2026-04-10')).resolves.toMatchObject({ status: 'SUBMITTED' })
   })
 })
