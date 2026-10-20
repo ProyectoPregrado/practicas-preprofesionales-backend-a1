@@ -126,8 +126,8 @@ E5-01 fijó las reglas con 40 tests de caracterización (100 % de la función) y
 reescribió como una lista de reglas ordenadas: la primera que aplica decide el nivel y las
 razones, y el orden de la lista es la precedencia. Sin `if` anidados; ESLint pasa de 6
 problemas (5 errores) a 0 en `accreditation.ts`. Se comprobó que el resultado es idéntico al
-de la versión anterior en 41.472 combinaciones de entradas (incluidos `NaN`, `null` y
-`requiredHours = 0`) y los tests de E5-01 no se modificaron. Los defectos que la reescritura
+de la versión anterior en 294.000 combinaciones de entradas (incluidos `NaN`, negativos y
+`null` en horas, pendientes y notas) y los tests de E5-01 no se modificaron. Los defectos que la reescritura
 conserva a propósito (`requiredHours = 0` da `NaN` o `Infinity`; el texto «hay 1 horas») van
 aparte, en E5-01b.
 
