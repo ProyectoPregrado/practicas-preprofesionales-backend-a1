@@ -5,13 +5,21 @@ import { OfferStatus, PlacementStatus, PrismaClient, Role } from '@prisma/client
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { formatDay, normalizeCalendarDay } from '../common/calendar-date'
 import { TIME_ZONES, useTimeZone } from '../test/time-zone'
+import { HourLogNotificationService } from './hour-log-notification.service'
+import { HourLogReportService } from './hour-log-report.service'
+import { HourLogExportService } from './hour-log-export.service'
 import { HourLogService } from './hour-log.service'
 
 // E6-02: el rango de la práctica y la fecha futura se hacen cumplir contra Postgres real. La plaza abarca
 // de marzo de 2026 a 2099, así que «dentro del rango» no caduca; lo que se prueba es lo que queda en la base.
 const prisma = new PrismaClient()
 const suffix = `${Date.now()}`
-const service = new HourLogService(prisma as never)
+const service = new HourLogService(
+    prisma as never,
+    new HourLogNotificationService(),
+    new HourLogReportService(prisma as never),
+    new HourLogExportService(prisma as never),
+  )
 const created = { userIds: [] as number[], placementId: 0, applicationId: 0, offerId: 0, companyId: 0 }
 let studentId = 0
 let placementId = 0

@@ -3,12 +3,20 @@ import { randomUUID } from 'crypto'
 import { ApplicationStatus, HourLogStatus, OfferStatus, PlacementStatus, PrismaClient, Role } from '@prisma/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HourLogService } from './hour-log.service'
+import { HourLogNotificationService } from './hour-log-notification.service'
+import { HourLogReportService } from './hour-log-report.service'
+import { HourLogExportService } from './hour-log-export.service'
 
 // N-3 — La plaza pasa a COMPLETED cuando las horas aprobadas alcanzan requiredHours (Postgres real).
 // Sin el bloqueo por plaza, dos aprobaciones simultáneas no ven la del otro y ninguna cruza el umbral.
 const prisma = new PrismaClient()
 const suffix = `${Date.now()}`
-const service = new HourLogService(prisma as never)
+const service = new HourLogService(
+  prisma as never,
+  new HourLogNotificationService(),
+  new HourLogReportService(prisma as never),
+  new HourLogExportService(prisma as never),
+)
 const REQUIRED = 8
 const created = { userIds: [] as number[], placementIds: [] as number[], applicationIds: [] as number[], offerIds: [] as number[], companyId: 0 }
 let tutorId = 0

@@ -8,8 +8,8 @@ Si encuentras algo que no está acá, agrégalo. Casi seguro hay más.
 Revisión K-1 (backend), 14 de octubre de 2026, actualizada con develop 8229dee.
 E2-03, N-1, N-2, N-3, S-2 y D-11 ya están integradas en develop mediante los PR
 #29, #30, #32, #28, #26 y #27, respectivamente. Los estados siguientes reflejan esa base.
-D-02 sigue abierta: el servicio supera las 300 líneas y conserva las responsabilidades
-y comentarios D-02. No se considera pagada por haber añadido tests o arreglado horas.
+D-02 queda pagada con E6-03 y el lint del backend (S-3b) queda en cero; ver más abajo.
+Revisión de cierre del 21 de octubre de 2026 sobre develop con esta rama integrada.
 
 --- Deuda Pagada
 
@@ -82,15 +82,28 @@ no está cerrando el círculo. No tuvimos tiempo de sentarnos a entenderlo.
 
 Workaround actual: el coordinador borra los duplicados a mano.
 
---- Deuda pendiente
+--- Deuda Pagada (E6-03)
 
 ## D-02 · `HourLogService` se nos fue de las manos
 
 `src/hour-log/hour-log.service.ts`
 
-Empezó siendo el CRUD de horas y terminó haciendo validación, persistencia, notificación al
-tutor y agregación de reportes. Pasa las 300 líneas. Cada vez que hay que tocar algo ahí, hay
-que leerlo entero. Habría que partirlo por responsabilidad, pero nunca fue prioridad.
+E6-03 extrae `HourLogReportService`, `HourLogExportService` y
+`HourLogNotificationService`. `HourLogService` mantiene su contrato público y coordina las
+escrituras; las reglas compartidas siguen en `hour-rules.ts`. Los bloqueos por estudiante
+y plaza conservan sus transacciones. La notificación actual sigue siendo de consola.
+
+Hay pruebas de caracterización del avance, resumen semanal y CSV, además de composición
+de Nest y ausencia de notificación ante un commit fallido. Las pruebas PostgreSQL se
+adaptaron al constructor y se ejecutaron con base real: 476 pruebas en verde al integrar.
+Ver `docs/E6-03-responsabilidades.md`.
+
+--- Deuda Pagada (S-3b)
+
+## S-3b — Lint del backend
+
+Bajó de 16 hallazgos (12 errores, 4 advertencias) a 0: `pnpm lint` termina con código 0 sin desactivar reglas. Las dos alertas de complejidad de acreditación desaparecieron con E5-02. Ver `docs/S-3b-lint-backend.md`.
+
 --- Pruebas incorporadas; revisión E4 pendiente
 
 ## D-03 — Evaluaciones: pruebas incorporadas y revisión pendiente
