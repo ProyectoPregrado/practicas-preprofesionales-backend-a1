@@ -14,7 +14,7 @@ type SessionUser = {
   companyId: number | null
 }
 
-const SESSION_EXPIRED_MESSAGE = 'la sesión expiró, iniciá sesión de nuevo'
+const SESSION_EXPIRED_MESSAGE = 'la sesión expiró, inicia sesión de nuevo'
 
 @Injectable()
 export class AuthService {

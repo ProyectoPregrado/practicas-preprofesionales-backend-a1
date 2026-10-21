@@ -16,7 +16,12 @@ export class AccreditationService {
       where: { startDate: { gte: from, lt: to }, deletedAt: null },
       // E3-06: `student: true` traía el usuario completo (password incluido) solo
       // para leer el nombre. Se acota al único campo que se usa más abajo.
-      include: { student: { select: { fullName: true } }, documents: true, evaluations: true },
+      include: {
+        student: { select: { fullName: true } },
+        documents: true,
+        // D-12: solo las vigentes y la más reciente primero, para que `find` no dependa del orden de la base.
+        evaluations: { where: { deletedAt: null }, orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }] },
+      },
     })
 
     const results: AccreditationResult[] = []
