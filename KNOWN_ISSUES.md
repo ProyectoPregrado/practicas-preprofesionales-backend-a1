@@ -206,3 +206,79 @@ libres, así que ninguna oferta nace sobrecupada (conteos y credenciales sin cam
 migración `enforce_offer_seats_on_insert` extiende el trigger a `BEFORE INSERT OR UPDATE`: un
 `INSERT` con `ACCEPTED` que supere los cupos falla con `offer_full`. Los datos ya sobrecupados en
 bases existentes no se tocan (D-11).
+
+## D-12 · Una evaluación enviada dos veces se guarda dos veces, y no se sabe cuál cuenta
+
+`src/evaluation/evaluation.service.ts`, `prisma/schema.prisma` (`Evaluation`) y
+`src/placement/accreditation.service.ts`
+
+`EvaluationService.submit` hace un `create` directo: `Evaluation` no tiene índice único ni hay
+una consulta previa. La pantalla de evaluar (UX-6) impide el doble envío dentro de una pestaña
+(el botón queda deshabilitado y el formulario se reemplaza), pero dos pestañas, o recargar y volver
+a evaluar, dejan **dos evaluaciones** del mismo placement, tipo y periodo.
+
+Después, `AccreditationService` elige con `placement.evaluations.find((e) => e.kind === kind)` sobre
+un `include` sin `orderBy` y sin filtrar `deletedAt` (`listForPlacement` sí lo filtra). Con
+duplicados, el código no define cuál puntaje cuenta para la acreditación.
+
+Se afirma por lectura del código; no se reprodujo contra PostgreSQL ni hay una regresión escrita.
+Decisión de producto pendiente: ¿cuenta la última evaluación, o se rechaza la segunda con 409 (como
+`apply`, N-2)? Cualquiera de las dos necesita un test con dos envíos simultáneos.
+
+## D-13 · Documentos: el archivo no se guarda y el tipo se puede repetir
+
+`src/placement/placement.service.ts` (`addDocument`) y `src/pages/DocumentsPage.tsx` (frontend)
+
+Dos cosas distintas:
+
+- **El archivo no se sube.** El frontend manda nombre, tipo, tamaño y un `storageKey` aleatorio
+  (`crypto.randomUUID()`); el backend guarda esos datos y nada más. Aun así, la plaza solo se
+  activa con convenio y seguro en estado `VALIDATED`. Por eso el aviso del frontend (UX-9) dice
+  «registrado» y no «subido»: no presentes esto como carga de archivos. La subida real está en la
+  lista de lo que falta (documentos reales).
+- **No hay unicidad por tipo.** `Document` no tiene índice único: subir dos veces el mismo tipo crea dos
+  registros, y la pantalla del estudiante muestra el estado del más reciente por `updatedAt`. Un segundo
+  envío simultáneo tampoco se rechaza.
+
+Se afirma por lectura del código; no hay regresión escrita.
+
+## UX-1 a UX-11 · Línea de confirmaciones y avisos (frontend)
+
+Pantallas con confirmación o aviso propio (módulo `src/lib/notify.ts`, SweetAlert2 cargado bajo demanda):
+aceptar, descartar y entrevista (UX-1, UX-2), aprobar horas y publicar o cerrar ofertas (UX-4), postularse
+(UX-5), enviar evaluación (UX-6), registrar horas (UX-7), cerrar sesión con horas pendientes (UX-8) y
+documentos (UX-9). UX-10 recarga la lista tras un 400 del servidor y UX-11 centraliza la traducción de
+errores en `describeError`. UX-3 pasa los textos a tuteo y añade un test guardián en ambos repos.
+
+Estado al 21 de octubre de 2026: los PR siguen abiertos (frontend #37, #38, #40 a #47 y #39; backend #44),
+todos con CI en verde y sin conflictos; no están integrados en `develop`. Límites que quedan:
+
+- **Casi nada se vio en un navegador real.** Los tests simulan `@/lib/notify`; en UX-1 el aviso de éxito
+  tampoco se vio en el navegador (la oferta de prueba estaba llena). UX-5 a UX-11 no se probaron en la
+  app, ni con dos pestañas ni sin conexión real.
+- **El aviso de éxito de registrar horas y documentos no se espera** (UX-7, UX-9) para no dejar el botón
+  bloqueado 3 s. Si el fragmento de SweetAlert2 no estuviera disponible sin conexión, su rechazo quedaría
+  sin atender en consola; no afecta al guardado. El service worker lo precachea, pero no se verificó en frío.
+- **El botón de confirmar ya no es rojo** al descartar horas al salir (UX-8): `notify.confirmar` usa el
+  estilo principal. `LoginPage`, `ReviewHoursPage` (el diálogo de devolver) y `CompanyOffersPage` siguen
+  con su `Dialog` propio.
+- **La recarga de UX-10 se decide por código 400**, no por el texto: un 400 por otra causa recarga de más
+  (inofensivo). Si la recarga de postulaciones falla, la pantalla pasa al estado de error.
+- **`describeError` (UX-11) no cubre todo:** tres mensajes de carga y creación de `CompanyOffersPage` y el
+  401 de `offline/sync/push.ts` conservan su propio manejo.
+- **El guardián de tuteo (UX-3) usa una lista de formas conocidas:** no detecta un voseo que no esté en
+  ella. Los comentarios del código con «acá» no se cambiaron. El mensaje de sesión expirada del backend
+  no se vio en el navegador.
+- Duplicados de evaluaciones y documentos: ver D-12 y D-13.
+
+## E6-05 · La paginación del libro de horas está sin confirmar
+
+Diez registros por página (`PAGE_SIZE = 10`, `src/components/Pagination.tsx`). Cambia lo que ve la
+persona y es una decisión de producto que nadie ha confirmado. La medición del «antes» no es reproducible
+(`docs/E6-05-medicion-libro-horas.md` del frontend).
+
+## E6-02 · Un dispositivo adelantado respecto de Ecuador registra «hoy» como futuro
+
+Un día «de hoy» desde un dispositivo con la hora adelantada se rechaza como fecha futura; en el sync ese
+rechazo es definitivo. Está anotado en `CIERRE.md`. Opciones sin decidir: tolerar un margen o validar
+contra la fecha del servidor.
