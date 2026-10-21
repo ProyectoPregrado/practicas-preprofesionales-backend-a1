@@ -1,0 +1,42 @@
+{
+  "measuredAt": "2026-10-21T11:37:42.497Z",
+  "note": "Los resultados corresponden a los comandos y alcances documentados en pitch-demo-anthony.md. Los hashes de fuentes identifican el árbol medido, incluidos cambios sin commit.",
+  "backend": {
+    "commit": "f055ed9dd395fdc867295cd898afb3db62e57044",
+    "sourceSha256": "ff41ff798ac424f5b38b22a8d74e74915cddc0abcd24b7f4fac153413d29ee2d",
+    "sourceFiles": 102,
+    "tests": {
+      "reportSha256": "33a021aba6b00d1572fc44daca9107bfc93c82fea0d31b838c9c96eca150c0ab",
+      "startedAt": "2026-10-21T11:37:28.714Z",
+      "success": true,
+      "files": 38,
+      "total": 479,
+      "passed": 479,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    }
+  },
+  "frontend": {
+    "commit": "bcdedaacb87680c00a12618327a62dbacfd8ac66",
+    "sourceSha256": "5f39eb6604f3f0db18be07d307564c6491dadcbd1b8fbdd2bc54459720b27fb0",
+    "sourceFiles": 123,
+    "tests": {
+      "reportSha256": "e3fb012ca269bf0ad1b16a2604d2eace127d37d6f83d3fc831d97521acbb3d77",
+      "startedAt": "2026-10-21T11:37:14.121Z",
+      "success": true,
+      "files": 42,
+      "total": 244,
+      "passed": 244,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    }
+  },
+  "backendLint": {
+    "reportSha256": "0eb90ee8ee0f2f46c313ce7cf2ca549666b398568f922bb6b2e8113fbb4dca73",
+    "errors": 0,
+    "warnings": 0,
+    "findings": []
+  }
+}
