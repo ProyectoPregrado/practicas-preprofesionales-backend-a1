@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { access, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import {
   BadRequestException,
   ForbiddenException,
@@ -84,6 +84,34 @@ export class DocumentService {
    * Los documentos registrados antes de DOC-1 no tienen archivo: responden 404 con un mensaje que lo dice.
    */
   async openFile(documentId: number, caller: Caller) {
+    const { document, path } = await this.authorizedFile(documentId, caller)
+    return {
+      stream: createReadStream(path),
+      mimeType: document.mimeType,
+      filename: document.filename,
+      size: document.size,
+    }
+  }
+
+  /**
+   * IA-1: el archivo completo en memoria, con los datos de la plaza contra los que se compara (nombre del estudiante,
+   * empresa y fechas). Mismos permisos que `openFile`.
+   */
+  async readFileWithPlacement(documentId: number, caller: Caller) {
+    const { document, path } = await this.authorizedFile(documentId, caller)
+    const placement = await this.prisma.placement.findUniqueOrThrow({
+      where: { id: document.placementId },
+      select: {
+        startDate: true,
+        endDate: true,
+        student: { select: { fullName: true } },
+        company: { select: { name: true } },
+      },
+    })
+    return { document, buffer: await readFile(path), placement }
+  }
+
+  private async authorizedFile(documentId: number, caller: Caller) {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, deletedAt: null },
       include: { placement: { select: { studentId: true, tutorId: true } } },
@@ -105,12 +133,6 @@ export class DocumentService {
     } catch {
       throw missing
     }
-
-    return {
-      stream: createReadStream(path),
-      mimeType: document.mimeType,
-      filename: document.filename,
-      size: document.size,
-    }
+    return { document, path }
   }
 }
