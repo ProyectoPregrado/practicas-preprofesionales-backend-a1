@@ -1,41 +1,32 @@
 # S-3b — Lint del backend
 
-Responsable: Anthony. Medición del 19 de octubre de 2026 (Ecuador).
+Responsable: Anthony. Cerrada al integrar la rama el 21 de octubre de 2026.
 
 | Medición | Errores | Advertencias | Total |
 |---|---:|---:|---:|
-| Base `develop` (`5df1edf`) | 12 | 4 | 16 |
-| Esta rama | 1 | 1 | 2 |
+| Base `develop` antes de E5-02 (`5df1edf`) | 12 | 4 | 16 |
+| `develop` con esta rama (E5-02 y E6-02 ya integradas) | 0 | 0 | 0 |
 
-## Corregido
+`pnpm lint` termina con código 0. No se desactivó ninguna regla ni se elevó ningún umbral.
+
+## Qué corrigió esta rama
 
 - E6-03 retira los comentarios de deuda del servicio que ya fue dividido.
-- Los fixtures utilizan `randomUUID()` como valor de contraseña de prueba; el test
-  de privacidad sigue comprobando que el valor exacto no aparezca en la respuesta.
+- Los fixtures utilizan `randomUUID()` como valor de contraseña de prueba; el test de privacidad sigue comprobando que el valor exacto no aparezca en la respuesta.
 - `SyncService` utiliza el tipo de Prisma del registro con su plaza, en lugar de `any`.
-- La suite de integración de sync usa inferencia de tipos y propaga el error de setup
-  con su causa. La falta de PostgreSQL ya no se convierte en una aparente ejecución correcta.
-- En acreditación se elimina únicamente la asignación inicial redundante de `level`.
-  Cada rama ya asigna su resultado. No se reescriben reglas, prioridades ni mensajes.
+- La suite de integración de sync usa inferencia de tipos y propaga el error de setup con su causa: la falta de PostgreSQL ya no se convierte en una aparente ejecución correcta.
 
-## Pendiente de E5-01 → E5-02
+## Lo que resolvió E5-02
 
-Quedan `complexity` (17, máximo 10) y `sonarjs/cognitive-complexity` (84, máximo 15)
-en `src/placement/accreditation.ts`. **El lint global todavía termina con código 1.**
+Los dos hallazgos de complejidad de `calculateAccreditationStatus` (ciclomática 17 y cognitiva 84) desaparecieron al reescribirla como lista de reglas (E5-02, Mauz). La asignación redundante de `level` que esta rama había quitado ya no existe en el código nuevo.
 
-El plan asigna la reescritura de esa función a Mauz en E5-02 y exige integrar primero
-E5-01. Al comprobar GitHub, el [PR #35](https://github.com/ProyectoPregrado/practicas-preprofesionales-backend-a1/pull/35)
-seguía abierto y no fusionado. No se desactivan reglas ni se elevan sus umbrales para
-ocultar esta deuda. S-3b queda parcialmente resuelta, con 14 de 16 hallazgos corregidos.
-
-Cuando E5-02 se integre, actualizar esta rama con `develop` y ejecutar:
+## Verificación
 
 ```bash
-pnpm typecheck
 pnpm lint
-pnpm test
+pnpm exec tsc --noEmit
 pnpm build
+pnpm test
 ```
 
-Solo entonces debe marcarse S-3b completa y endurecerse el gate de lint de CI si el
-equipo decide hacerlo. La sincronización global de deudas y `CIERRE.md` sigue a cargo de Mabe.
+Queda decidir si se endurece el gate de lint de CI.

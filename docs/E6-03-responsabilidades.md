@@ -1,6 +1,6 @@
 # E6-03 — Separar responsabilidades de HourLogService
 
-Responsable: Anthony. Base: `develop` en `5df1edf`. Implementado en esta rama; pendiente de integración.
+Responsable: Anthony. Integrado sobre `develop` el 21 de octubre de 2026 (después de E5-02 y E6-02).
 
 ## Cambio
 
@@ -52,7 +52,6 @@ constructor explícito, sin cambiar sus aserciones. Para ejecutarlas con una bas
 pnpm exec vitest run src/hour-log/hour-log-daily-limit-e2e.spec.ts src/hour-log/placement-completion-e2e.spec.ts
 ```
 
-En esta sesión no se pudieron ejecutar: tras iniciar Docker, el entorno de ejecución
-recibe `permission denied` al acceder al motor y `EACCES` en el puerto de PostgreSQL.
-No se consideran aprobadas ni se omiten silenciosamente. El resultado unitario global
-verificado es de 246 pruebas; el alcance exacto figura en `pitch-demo-anthony.md`.
+Verificación al integrar (21 de octubre de 2026, con PostgreSQL real): suite completa de 476 pruebas en 38 archivos en verde, también las de fechas con `TZ=UTC` y `TZ=Pacific/Auckland`; `pnpm lint`, `tsc --noEmit` y `pnpm build` sin errores.
+
+Al integrar, `HourLogReportService` pasó a usar `isoWeekLabel` de `common/calendar-date.ts` (E6-02, en UTC) en vez de la copia con getters locales que traía la rama.
