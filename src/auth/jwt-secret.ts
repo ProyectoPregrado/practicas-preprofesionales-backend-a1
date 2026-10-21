@@ -5,7 +5,7 @@ export function getRequiredJwtSecret(env: NodeJS.ProcessEnv = process.env): stri
   const secret = env.JWT_SECRET
   if (!secret) {
     throw new Error(
-      'Falta la variable de entorno JWT_SECRET. Generá una con "openssl rand -base64 48" ' +
+      'Falta la variable de entorno JWT_SECRET. Genera una con "openssl rand -base64 48" ' +
         'y agregala a tu .env (ver README.md, sección Variables de entorno). ' +
         'La aplicación no puede arrancar sin un secreto de firma explícito.',
     )

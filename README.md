@@ -39,7 +39,7 @@ máquina, cambia `POSTGRES_PORT` y `DATABASE_URL` en `.env` antes de `docker com
 | `MAX_HOURS_PER_DAY` | `8` | Tope de horas por día: suma de todos los registros del estudiante en esa fecha (decisión de la coordinación, igual para todas las carreras) |
 | `INSTITUTION_TIME_ZONE` | `America/Guayaquil` | Zona horaria de la institución (nombre IANA). Define a qué día calendario pertenece una fecha con hora y qué es «hoy» para rechazar fechas futuras (E6-02) |
 
-`JWT_SECRET` es obligatorio: la aplicación no arranca sin él (E3-04 / D-07). Generá uno adecuado con:
+`JWT_SECRET` es obligatorio: la aplicación no arranca sin él (E3-04 / D-07). Genera uno adecuado con:
 
 ```bash
 openssl rand -base64 48
