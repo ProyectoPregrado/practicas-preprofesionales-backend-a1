@@ -1,6 +1,6 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Placement } from '@prisma/client'
-import { EvaluationKind, Role } from '@prisma/client'
+import { EvaluationKind, Prisma, Role } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateEvaluationDto } from './dto/create-evaluation.dto'
 
@@ -14,17 +14,26 @@ export class EvaluationService {
 
     await this.assertCanSubmit(dto, placement, evaluatorId, evaluatorRole)
 
-    return this.prisma.evaluation.create({
-      data: {
-        placementId: dto.placementId,
-        evaluatorId,
-        kind: dto.kind,
-        period: dto.period,
-        scores: dto.scores as unknown as object,
-        comment: dto.comment,
-        submittedAt: new Date(),
-      },
-    })
+    // D-12: la unicidad (plaza, tipo, periodo) la da el índice parcial de la base: dos envíos simultáneos no pasan
+    // una lectura previa; el que pierde recibe P2002 y se traduce a 409.
+    try {
+      return await this.prisma.evaluation.create({
+        data: {
+          placementId: dto.placementId,
+          evaluatorId,
+          kind: dto.kind,
+          period: dto.period,
+          scores: dto.scores as unknown as object,
+          comment: dto.comment,
+          submittedAt: new Date(),
+        },
+      })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('ya hay una evaluación de este periodo para esta práctica')
+      }
+      throw error
+    }
   }
 
   /** Deriva del rol de quien llama qué `kind` de evaluación puede enviar y sobre qué placement. */

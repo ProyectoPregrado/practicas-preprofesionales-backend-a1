@@ -50,6 +50,25 @@ describe('AccreditationService — E3-06 (no filtrar datos sensibles)', () => {
   })
 })
 
+// D-12: la acreditación usa una nota por tipo. La consulta tiene que dejar fuera las evaluaciones borradas y ordenar
+// de la más reciente a la más antigua; sin orden, `find` se quedaba con la que la base devolviera primero.
+describe('AccreditationService — qué evaluación cuenta (D-12)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma.hourLog.aggregate.mockResolvedValue({ _sum: { hours: 10 } })
+    prisma.placement.findMany.mockResolvedValue([])
+  })
+
+  it('pide solo las evaluaciones vigentes, de la más reciente a la más antigua', async () => {
+    await new AccreditationService(prisma as never).reportForPeriod('2026-1')
+
+    expect(prisma.placement.findMany.mock.calls[0][0].include.evaluations).toEqual({
+      where: { deletedAt: null },
+      orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+    })
+  })
+})
+
 // E6-02: una fecha de negocio es un día calendario guardado como medianoche UTC. Los límites del período
 // no pueden depender de la zona horaria del servidor.
 describe.each(TIME_ZONES)('AccreditationService — límites del período (E6-02), zona %s', (zone) => {
