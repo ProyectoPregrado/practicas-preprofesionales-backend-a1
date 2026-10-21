@@ -1,34 +1,24 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HourLogStatus, PlacementStatus, Role } from '@prisma/client'
-import { dailyHoursError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
+import { dailyHoursError, hourDateError, hoursRangeError, timeOrderError, withStudentHoursLock } from './hour-rules'
 import { completePlacementIfReached, withPlacementApprovalLock } from './placement-completion'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateHourLogDto } from './dto/create-hour-log.dto'
+import { HourLogNotificationService } from './hour-log-notification.service'
+import { HourLogReportService } from './hour-log-report.service'
+import { HourLogExportService } from './hour-log-export.service'
 
-// D-02 (deuda sembrada, documentada a propósito): este servicio es un
-// "god service". `create` valida el DTO, persiste el registro y dispara
-// una notificación al tutor; `review` maneja la máquina de estados de
-// aprobación; `approvedHours`/`progressReport`/`weeklySummary`/`exportRows`
-// agregan y transforman datos para reportes. Todo vive en el mismo archivo
-// a propósito: no lo dividas en `HourLogValidationService`,
-// `HourLogNotificationService` ni `HourLogReportService`. El objetivo de
-// producto es que el equipo que reciba el template identifique el problema
-// de mantenibilidad y decida cómo (y cuándo) separarlo — no que nazca ya
-// separado.
+// Orquesta las escrituras y conserva la API pública del módulo.
+// Los bloqueos y sus escrituras permanecen juntos: E6-01 por estudiante y N-3 por plaza.
 @Injectable()
 export class HourLogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: HourLogNotificationService,
+    private readonly reports: HourLogReportService,
+    private readonly exporter: HourLogExportService,
+  ) {}
 
-  /**
-   * Registra una jornada de horas para el placement del estudiante.
-   *
-   * Hace tres cosas en un solo método (síntoma de D-02): revalida el rango
-   * de horas y el orden de `startTime`/`endTime` (ver D-06), persiste el
-   * registro en estado `SUBMITTED`, y dispara la notificación al tutor.
-   *
-   * @param dto DTO ya validado por `ValidationPipe` a nivel de HTTP.
-   * @param studentId id del usuario autenticado que registra la jornada.
-   */
   async create(dto: CreateHourLogDto, studentId: number) {
     const placement = await this.prisma.placement.findUnique({ where: { id: dto.placementId } })
     if (!placement) throw new NotFoundException('placement no encontrado')
@@ -37,12 +27,14 @@ export class HourLogService {
       throw new BadRequestException('el placement no está activo')
     }
 
-    // E6-01: la regla de horas vive en hour-rules.ts. Se valida el rango y el orden, y después la suma
-    // diaria del estudiante bajo un bloqueo por estudiante (si no, dos registros simultáneos pasan).
     const rangeError = hoursRangeError(dto.hours) ?? timeOrderError(dto.startTime, dto.endTime)
     if (rangeError) throw new BadRequestException(rangeError)
 
-    // La fecha del registro llega desde el cliente y se persiste tal como fue recibida.
+    // E6-02: la fecha (ya normalizada a día calendario por el DTO) tiene que estar dentro de la práctica
+    // y no puede ser futura.
+    const dateError = hourDateError(dto.date, placement)
+    if (dateError) throw new BadRequestException(dateError)
+
     const created = await withStudentHoursLock(this.prisma, studentId, async (tx) => {
       const dailyError = await dailyHoursError(tx, studentId, dto.date, dto.hours)
       if (dailyError) throw new BadRequestException(dailyError)
@@ -59,19 +51,10 @@ export class HourLogService {
       })
     })
 
-    this.notifyTutor(placement.tutorId, created.id)
+    this.notifications.notifyTutor(placement.tutorId, created.id)
     return created
   }
 
-  // D-02: notificación dentro del mismo servicio que persiste y valida.
-  private notifyTutor(tutorId: number, hourLogId: number): void {
-    console.log(`[notificación] tutor ${tutorId}: nueva hora registrada #${hourLogId}`)
-  }
-
-  /**
-   * Verifica que quien consulta un placement sea el estudiante dueño, su
-   * tutor asignado, o un coordinador.
-   */
   async assertPlacementAccess(placementId: number, userId: number, role: Role): Promise<void> {
     const placement = await this.prisma.placement.findUnique({ where: { id: placementId } })
     if (!placement) throw new NotFoundException('placement no encontrado')
@@ -79,7 +62,6 @@ export class HourLogService {
     if (!allowed) throw new ForbiddenException('no tienes acceso a este placement')
   }
 
-  /** Lista el libro de horas completo de un placement, más reciente primero. */
   listForPlacement(placementId: number) {
     return this.prisma.hourLog.findMany({
       where: { placementId, deletedAt: null },
@@ -87,12 +69,6 @@ export class HourLogService {
     })
   }
 
-  /**
-   * Aprueba o rechaza un registro de horas.
-   *
-   * Valida la máquina de estados: solo se revisan registros que están en
-   * `SUBMITTED`; de ahí pasan a `APPROVED` o `REJECTED`.
-   */
   async review(id: number, status: HourLogStatus, reviewerId: number, note?: string) {
     const log = await this.prisma.hourLog.findUnique({
       where: { id },
@@ -106,8 +82,6 @@ export class HourLogService {
       throw new BadRequestException('solo se revisan registros en SUBMITTED')
     }
 
-    // N-3: la revisión y el posible cierre de la plaza van en una transacción bajo el bloqueo de la plaza,
-    // para que la suma de horas aprobadas incluya siempre las aprobaciones previas.
     await withPlacementApprovalLock(this.prisma, log.placementId, async (tx) => {
       const result = await tx.hourLog.updateMany({
         where: {
@@ -136,195 +110,19 @@ export class HourLogService {
     return updated
   }
 
-  /**
-   * Suma las horas ya `APPROVED` de un placement.
-   *
-   * D-02: agregación de reporte en el mismo servicio que valida, persiste
-   * y notifica.
-   */
-  async approvedHours(placementId: number): Promise<number> {
-    const result = await this.prisma.hourLog.aggregate({
-      where: { placementId, status: HourLogStatus.APPROVED, deletedAt: null },
-      _sum: { hours: true },
-    })
-    return result._sum.hours ?? 0
+  approvedHours(placementId: number): Promise<number> {
+    return this.reports.approvedHours(placementId)
   }
 
-  /**
-   * Reporte de avance de un placement: horas requeridas, horas aprobadas,
-   * registros pendientes de revisión, y porcentaje de avance.
-   */
-  async progressReport(placementId: number) {
-    const placement = await this.prisma.placement.findUnique({ where: { id: placementId } })
-    if (!placement) throw new NotFoundException('placement no encontrado')
-    const approved = await this.approvedHours(placementId)
-    const pending = await this.prisma.hourLog.count({
-      where: { placementId, status: HourLogStatus.SUBMITTED, deletedAt: null },
-    })
-    return {
-      placementId,
-      requiredHours: placement.requiredHours,
-      approvedHours: approved,
-      pendingLogs: pending,
-      percentage: Math.round((approved / placement.requiredHours) * 100),
-    }
+  progressReport(placementId: number) {
+    return this.reports.progressReport(placementId)
   }
 
-  // D-02: otra agregación de reporte más, en el mismo servicio que valida,
-  // persiste y notifica. Debería vivir en un `HourLogReportService`, pero
-  // el punto de la deuda es que nadie lo separó todavía.
-  async weeklySummary(placementId: number): Promise<
-    {
-      week: string
-      approvedHours: number
-      submittedHours: number
-      logsCount: number
-      expectedHoursPercentage: number
-    }[]
-  > {
-    const placement = await this.prisma.placement.findUnique({ where: { id: placementId } })
-    if (!placement) throw new NotFoundException('placement no encontrado')
-
-    const logs = await this.prisma.hourLog.findMany({
-      where: { placementId, deletedAt: null },
-      orderBy: { date: 'asc' },
-    })
-
-    // Reparto ingenuo de `requiredHours` entre las semanas del placement,
-    // para poder comparar el avance semana a semana contra "lo esperado".
-    // No es un cálculo de negocio serio (no contempla feriados, licencias,
-    // etc.) — es exactamente el tipo de atajo que un `HourLogReportService`
-    // dedicado habría cuestionado en revisión de diseño.
-    const totalDays = Math.max(
-      1,
-      Math.ceil((placement.endDate.getTime() - placement.startDate.getTime()) / 86400000),
-    )
-    const totalWeeks = Math.max(1, Math.ceil(totalDays / 7))
-    const expectedHoursPerWeek = placement.requiredHours / totalWeeks
-
-    // No usamos ninguna librería de fechas para agrupar por semana ISO:
-    // se calcula a mano, lo que suma más complejidad ciclomática al
-    // servicio en vez de delegarla a un util compartido.
-    const buckets = new Map<string, { approvedHours: number; submittedHours: number; logsCount: number }>()
-
-    for (const log of logs) {
-      // Solo contamos horas que ya pasaron por algún tipo de revisión o
-      // que están esperando revisión; los DRAFT no entran al resumen.
-      if (log.status !== HourLogStatus.APPROVED && log.status !== HourLogStatus.SUBMITTED) {
-        continue
-      }
-
-      const week = this.isoWeekLabel(log.date)
-      const bucket = buckets.get(week) ?? { approvedHours: 0, submittedHours: 0, logsCount: 0 }
-
-      if (log.status === HourLogStatus.APPROVED) {
-        bucket.approvedHours += log.hours
-      } else {
-        bucket.submittedHours += log.hours
-      }
-      bucket.logsCount += 1
-
-      buckets.set(week, bucket)
-    }
-
-    const summary: {
-      week: string
-      approvedHours: number
-      submittedHours: number
-      logsCount: number
-      expectedHoursPercentage: number
-    }[] = []
-
-    for (const [week, bucket] of buckets.entries()) {
-      const expectedHoursPercentage =
-        expectedHoursPerWeek > 0 ? Math.round((bucket.approvedHours / expectedHoursPerWeek) * 100) : 0
-
-      summary.push({
-        week,
-        approvedHours: bucket.approvedHours,
-        submittedHours: bucket.submittedHours,
-        logsCount: bucket.logsCount,
-        expectedHoursPercentage,
-      })
-    }
-
-    // Orden cronológico. Como `week` tiene formato `AAAA-Wnn`, el orden
-    // lexicográfico coincide con el orden cronológico dentro del mismo año.
-    summary.sort((a, b) => {
-      if (a.week < b.week) return -1
-      if (a.week > b.week) return 1
-      return 0
-    })
-
-    return summary
+  weeklySummary(placementId: number) {
+    return this.reports.weeklySummary(placementId)
   }
 
-  // D-02: cálculo manual de semana ISO 8601. Otra pieza de lógica que
-  // debería vivir en un helper de fechas compartido y en cambio vive aquí,
-  // pegada al resto de responsabilidades del servicio.
-  private isoWeekLabel(date: Date): string {
-    // Copiamos la fecha a UTC para no arrastrar el timezone del proceso.
-    const copy = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-
-    // Lunes = 1 ... domingo = 7, para poder mover la fecha al jueves de
-    // la misma semana ISO (regla estándar de cálculo de semana ISO 8601).
-    const isoDayNumber = copy.getUTCDay() === 0 ? 7 : copy.getUTCDay()
-    copy.setUTCDate(copy.getUTCDate() + 4 - isoDayNumber)
-
-    const yearStart = new Date(Date.UTC(copy.getUTCFullYear(), 0, 1))
-    const daysSinceYearStart = (copy.getTime() - yearStart.getTime()) / 86400000
-    const weekNumber = Math.ceil((daysSinceYearStart + 1) / 7)
-
-    return `${copy.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`
-  }
-
-  // D-02: exporta el libro de horas a filas de CSV, en el mismo servicio
-  // que valida y persiste. Debería vivir en un `HourLogExportService`.
-  async exportRows(placementId: number): Promise<(string | number)[][]> {
-    const logs = await this.prisma.hourLog.findMany({
-      where: { placementId, deletedAt: null },
-      orderBy: { date: 'asc' },
-    })
-
-    const header = ['id', 'fecha', 'inicio', 'fin', 'horas', 'actividad', 'estado', 'revisadoPor']
-    const rows: (string | number)[][] = [header]
-
-    for (const dto of logs) {
-      // E6-01: misma regla que en `create`, ahora compartida (hour-rules.ts).
-      const ruleError = hoursRangeError(dto.hours) ?? timeOrderError(dto.startTime, dto.endTime)
-      if (ruleError) throw new BadRequestException(ruleError)
-
-      rows.push([
-        dto.id,
-        dto.date.toISOString().slice(0, 10),
-        dto.startTime,
-        dto.endTime,
-        dto.hours,
-        this.escapeCsvField(dto.activity),
-        dto.status,
-        dto.reviewedById ?? '',
-      ])
-    }
-
-    // Fila de totales al final del CSV. Se recorren las filas ya
-    // construidas en vez de reutilizar `approvedHours` — otra oportunidad
-    // perdida de reusar código en vez de recalcular a mano.
-    let totalHours = 0
-    for (const row of rows.slice(1)) {
-      const hoursCell = row[4]
-      if (typeof hoursCell === 'number') totalHours += hoursCell
-    }
-    rows.push(['', '', '', '', totalHours, 'TOTAL', '', ''])
-
-    return rows
-  }
-
-  // D-02: escapado de CSV a mano (RFC 4180 mínimo viable), otra
-  // responsabilidad más colgada del mismo servicio en vez de una utilidad
-  // compartida de exportación.
-  private escapeCsvField(value: string): string {
-    const needsQuoting = value.includes(',') || value.includes('"') || value.includes('\n')
-    if (!needsQuoting) return value
-    return `"${value.replace(/"/g, '""')}"`
+  exportRows(placementId: number): Promise<(string | number)[][]> {
+    return this.exporter.exportRows(placementId)
   }
 }

@@ -8,8 +8,8 @@ Si encuentras algo que no está acá, agrégalo. Casi seguro hay más.
 Revisión K-1 (backend), 14 de octubre de 2026, actualizada con develop 8229dee.
 E2-03, N-1, N-2, N-3, S-2 y D-11 ya están integradas en develop mediante los PR
 #29, #30, #32, #28, #26 y #27, respectivamente. Los estados siguientes reflejan esa base.
-D-02 sigue abierta: el servicio supera las 300 líneas y conserva las responsabilidades
-y comentarios D-02. No se considera pagada por haber añadido tests o arreglado horas.
+D-02 queda pagada con E6-03 y el lint del backend (S-3b) queda en cero; ver más abajo.
+Revisión de cierre del 21 de octubre de 2026 sobre develop con esta rama integrada.
 
 --- Deuda Pagada
 
@@ -55,12 +55,19 @@ borradores y tutor ajeno. Verificación de producto pendiente a cargo del fronte
 no se afirma haber observado un mensaje
 incorrecto. Un estudiante con postulación a una oferta cerrada debe seguir viéndola.
 
-## Sin sprint — Operaciones que todavía requieren caracterización
+--- Deuda Pagada
 
-OfferService.publish y close leen el estado antes de actualizar; no hay atomicidad
-entre ambas operaciones. El hallazgo está verificado por lectura; falta una prueba
-que caracterice sus efectos concurrentes. No se declara demostrado el fallo de
-concurrencia con solo esa lectura.
+## N-5 — publish y close de ofertas ya no ganan dos veces
+
+OfferService.publish y close leían el estado y después actualizaban en dos pasos. La
+regresión `src/offer/offer-state-race-e2e.spec.ts` (Postgres real, barrera sin `sleep`)
+demostró el fallo: dos llamadas simultáneas sobre la misma oferta terminaban las dos con
+éxito, y en publish la segunda pisaba `publishedAt`. Ahora el UPDATE queda condicionado
+al estado de origen (`updateMany`); quien pierde recibe el mismo 400 que si hubiera
+llegado tarde. El test falla sin el arreglo (2 de 2 en rojo) y pasa con él.
+
+Límite conocido: la lectura previa se conserva para el 404 y el 403; la garantía la da el
+UPDATE condicionado. Lo mismo vale para `apply` frente a un `close` simultáneo (ver N-2).
 
 --- Deuda Pagada
 
@@ -75,15 +82,28 @@ no está cerrando el círculo. No tuvimos tiempo de sentarnos a entenderlo.
 
 Workaround actual: el coordinador borra los duplicados a mano.
 
---- Deuda pendiente
+--- Deuda Pagada (E6-03)
 
 ## D-02 · `HourLogService` se nos fue de las manos
 
 `src/hour-log/hour-log.service.ts`
 
-Empezó siendo el CRUD de horas y terminó haciendo validación, persistencia, notificación al
-tutor y agregación de reportes. Pasa las 300 líneas. Cada vez que hay que tocar algo ahí, hay
-que leerlo entero. Habría que partirlo por responsabilidad, pero nunca fue prioridad.
+E6-03 extrae `HourLogReportService`, `HourLogExportService` y
+`HourLogNotificationService`. `HourLogService` mantiene su contrato público y coordina las
+escrituras; las reglas compartidas siguen en `hour-rules.ts`. Los bloqueos por estudiante
+y plaza conservan sus transacciones. La notificación actual sigue siendo de consola.
+
+Hay pruebas de caracterización del avance, resumen semanal y CSV, además de composición
+de Nest y ausencia de notificación ante un commit fallido. Las pruebas PostgreSQL se
+adaptaron al constructor y se ejecutaron con base real: 476 pruebas en verde al integrar.
+Ver `docs/E6-03-responsabilidades.md`.
+
+--- Deuda Pagada (S-3b)
+
+## S-3b — Lint del backend
+
+Bajó de 16 hallazgos (12 errores, 4 advertencias) a 0: `pnpm lint` termina con código 0 sin desactivar reglas. Las dos alertas de complejidad de acreditación desaparecieron con E5-02. Ver `docs/S-3b-lint-backend.md`.
+
 --- Pruebas incorporadas; revisión E4 pendiente
 
 ## D-03 — Evaluaciones: pruebas incorporadas y revisión pendiente
@@ -112,6 +132,20 @@ ESLint la marca por complejidad. Son `if` anidados hasta seis niveles con toda l
 acreditación adentro. Funciona — hasta donde sabemos — pero solo hay dos tests, así que
 cualquier cambio es a ciegas. Si te toca modificar reglas de acreditación, escribe primero
 tests de los casos que hoy funcionan.
+
+--- Deuda Pagada
+
+E5-01 fijó las reglas con 40 tests de caracterización (100 % de la función) y E5-02 la
+reescribió como una lista de reglas ordenadas: la primera que aplica decide el nivel y las
+razones, y el orden de la lista es la precedencia. Sin `if` anidados; ESLint pasa de 6
+problemas (5 errores) a 0 en `accreditation.ts`. Se comprobó que el resultado es idéntico al
+de la versión anterior en 294.000 combinaciones de entradas (incluidos `NaN`, negativos y
+`null` en horas, pendientes y notas) y los tests de E5-01 no se modificaron. Los dos defectos que la
+reescritura conservó a propósito se corrigieron aparte, con E5-01b: con `requiredHours = 0` el
+porcentaje daba `NaN` o `Infinity` (la API lo serializa como `null` y la pantalla de acreditación
+mostraba «null%»); ahora es 100 %, porque el requisito de horas está cumplido. Y el texto «hay 1
+horas pendientes» ahora dice «hay 1 hora pendiente». El nivel de acreditación no cambió: si una
+plaza puede exigir 0 horas es una decisión de producto.
 
 ## D-06 · La validación de horas está en tres lados
 

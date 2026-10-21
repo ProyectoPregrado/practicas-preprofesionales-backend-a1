@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { DocumentKind, DocumentStatus, HourLogStatus } from '@prisma/client'
+import { periodBounds } from '../common/calendar-date'
 import { PrismaService } from '../prisma/prisma.service'
 import { type AccreditationResult, calculateAccreditationStatus } from './accreditation'
 
@@ -8,9 +9,8 @@ export class AccreditationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async reportForPeriod(period: string): Promise<AccreditationResult[]> {
-    const [year, term] = period.split('-')
-    const from = new Date(Number(year), term === '1' ? 0 : 6, 1)
-    const to = new Date(Number(year), term === '1' ? 6 : 12, 1)
+    // E6-02: límites en UTC (día calendario), no en la zona del servidor.
+    const { from, to } = periodBounds(period)
 
     const placements = await this.prisma.placement.findMany({
       where: { startDate: { gte: from, lt: to }, deletedAt: null },

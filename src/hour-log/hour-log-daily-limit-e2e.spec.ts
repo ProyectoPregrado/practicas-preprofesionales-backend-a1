@@ -3,12 +3,20 @@ import { randomUUID } from 'crypto'
 import { ApplicationStatus, OfferStatus, PlacementStatus, PrismaClient, Role } from '@prisma/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HourLogService } from './hour-log.service'
+import { HourLogNotificationService } from './hour-log-notification.service'
+import { HourLogReportService } from './hour-log-report.service'
+import { HourLogExportService } from './hour-log-export.service'
 
 // E6-01 — El tope de 8 horas por día se cumple aunque los registros lleguen a la vez (Postgres real).
 // Sin el bloqueo por estudiante, todos leen la misma suma y pasan: la misma ventana de E2-01.
 const prisma = new PrismaClient()
 const suffix = `${Date.now()}`
-const service = new HourLogService(prisma as never)
+const service = new HourLogService(
+  prisma as never,
+  new HourLogNotificationService(),
+  new HourLogReportService(prisma as never),
+  new HourLogExportService(prisma as never),
+)
 const created = { userIds: [] as number[], placementId: 0, applicationId: 0, offerId: 0, companyId: 0 }
 let studentId = 0
 let placementId = 0

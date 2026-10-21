@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MIN_HOURS_PER_LOG,
   dailyHoursError,
+  dateRangeError,
+  futureDateError,
   getMaxHoursPerDay,
+  hourDateError,
   hoursRangeError,
   timeOrderError,
 } from './hour-rules'
@@ -80,5 +83,55 @@ describe('dailyHoursError — suma diaria del estudiante', () => {
         id: { not: 99 },
       },
     })
+  })
+})
+
+// E6-02: una fecha de registro cae dentro de la práctica y no es futura.
+describe('reglas de fecha de un registro — E6-02', () => {
+  const practice = { startDate: new Date('2026-03-01'), endDate: new Date('2026-07-31') }
+  const day = (value: string) => new Date(value)
+
+  describe('dateRangeError', () => {
+    it('acepta el primer y el último día de la práctica y uno intermedio', () => {
+      expect(dateRangeError(day('2026-03-01'), practice)).toBeNull()
+      expect(dateRangeError(day('2026-05-10'), practice)).toBeNull()
+      expect(dateRangeError(day('2026-07-31'), practice)).toBeNull()
+    })
+
+    it('rechaza el día anterior al inicio y el posterior al fin, diciendo cuál es el rango válido', () => {
+      const message = 'la fecha debe estar entre 2026-03-01 y 2026-07-31, los días de la práctica'
+      expect(dateRangeError(day('2026-02-28'), practice)).toBe(message)
+      expect(dateRangeError(day('2026-08-01'), practice)).toBe(message)
+    })
+
+    it('rechaza una fecha inválida', () => {
+      expect(dateRangeError(new Date(NaN), practice)).not.toBeNull()
+    })
+  })
+
+  describe('futureDateError', () => {
+    const now = new Date('2026-04-10T15:00:00Z') // 10:00 en Ecuador
+
+    it('acepta hoy y los días pasados', () => {
+      expect(futureDateError(day('2026-04-10'), now)).toBeNull()
+      expect(futureDateError(day('2026-04-09'), now)).toBeNull()
+    })
+
+    it('rechaza mañana, diciendo cuál es hoy', () => {
+      expect(futureDateError(day('2026-04-11'), now)).toBe('no se pueden registrar horas con fecha futura (hoy es 2026-04-10)')
+    })
+
+    it('«hoy» es el de la zona de la institución: a las 03:00Z todavía es el día anterior en Ecuador', () => {
+      const earlyUtc = new Date('2026-04-11T03:00:00Z')
+      expect(futureDateError(day('2026-04-10'), earlyUtc)).toBeNull()
+      expect(futureDateError(day('2026-04-11'), earlyUtc)).not.toBeNull()
+    })
+  })
+
+  it('hourDateError da primero el error de rango y después el de fecha futura', () => {
+    const now = new Date('2026-04-10T15:00:00Z')
+    expect(hourDateError(day('2026-12-01'), practice, now)).toMatch(/debe estar entre/)
+    expect(hourDateError(day('2026-04-11'), practice, now)).toMatch(/fecha futura/)
+    expect(hourDateError(day('2026-04-10'), practice, now)).toBeNull()
   })
 })

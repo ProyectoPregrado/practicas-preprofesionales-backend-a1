@@ -26,77 +26,124 @@ export interface AccreditationResult {
   completionPercentage: number
 }
 
-// D-05: complejidad ciclomática 17, anidamiento de 6 niveles.
-// ESLint la marca con `complexity` (umbral 10). No refactorizar.
+const MIN_EVALUATION_SCORE = 3
+
+interface Decision {
+  level: AccreditationLevel
+  reasons: string[]
+}
+
+interface Rule {
+  // Qué situación detecta la regla; solo documenta, no se usa para decidir.
+  when: string
+  applies: (input: AccreditationInput) => boolean
+  decide: (input: AccreditationInput) => Decision
+}
+
+// Una nota ausente o por debajo del mínimo no alcanza. Un `NaN` tampoco: la comparación da falso.
+const meetsMinimum = (score: number | null): boolean => score !== null && score >= MIN_EVALUATION_SCORE
+
+// Se niega «alcanzó» en vez de comparar con `<`: con `NaN` ambas comparaciones dan falso, y la regla
+// original decía «horas insuficientes» en ese caso (el mismo motivo por el que `meetsMinimum` es positivo).
+const hoursReached = (input: AccreditationInput): boolean => input.approvedHours >= input.requiredHours
+
+// Aviso opcional de horas pendientes; cada regla elige cómo se llaman (sin revisar o de aprobación).
+// E5-01b: «1 hora pendiente», no «1 horas pendientes».
+const pendingNote = (input: AccreditationInput, label: 'sin revisar' | 'de aprobación'): string[] => {
+  const hours = input.pendingHours
+  // Forma positiva a propósito: con NaN la comparación da falso y no hay aviso, igual que antes.
+  if (hours > 0) return [hours === 1 ? `hay 1 hora pendiente ${label}` : `hay ${hours} horas pendientes ${label}`]
+  return []
+}
+
+// E5-01b: sin horas requeridas no hay nada que dividir; el requisito de horas está cumplido (100 %).
+const completionPercentage = (input: AccreditationInput): number =>
+  input.requiredHours > 0 ? Math.round((input.approvedHours / input.requiredHours) * 100) : 100
+
+// E5-02 (antes D-05): la decisión es una lista de reglas ordenadas. La PRIMERA que aplica decide
+// nivel y razones; el orden de la lista es la precedencia. Está fijado por los tests de E5-01.
+const RULES: Rule[] = [
+  {
+    when: 'la plaza fue abandonada',
+    applies: (input) => input.placementStatus === 'ABANDONED',
+    decide: (input) => ({
+      level: 'NO_ACREDITADO',
+      reasons: ['placement abandonado', ...pendingNote(input, 'sin revisar')],
+    }),
+  },
+  {
+    when: 'la plaza está suspendida',
+    applies: (input) => input.placementStatus === 'SUSPENDED',
+    decide: (input) => ({
+      level: 'NO_ACREDITADO',
+      reasons: ['placement suspendido', ...(input.hasAgreement ? ['convenio vigente pese a la suspensión'] : [])],
+    }),
+  },
+  {
+    when: 'las horas aprobadas no alcanzan las requeridas',
+    applies: (input) => !hoursReached(input),
+    decide: (input) => ({
+      level: 'PENDIENTE',
+      reasons: ['horas insuficientes', ...pendingNote(input, 'de aprobación')],
+    }),
+  },
+  {
+    when: 'falta el convenio',
+    applies: (input) => !input.hasAgreement,
+    decide: (input) => ({
+      level: 'NO_ACREDITADO',
+      reasons: ['falta convenio', ...(input.hasInsurance ? ['seguro vigente pese a la falta de convenio'] : [])],
+    }),
+  },
+  {
+    when: 'falta el seguro',
+    applies: (input) => !input.hasInsurance,
+    decide: (input) => ({
+      level: 'NO_ACREDITADO',
+      reasons: ['falta seguro', ...pendingNote(input, 'de aprobación')],
+    }),
+  },
+  {
+    when: 'falta el informe final',
+    applies: (input) => !input.hasFinalReport,
+    decide: () => ({ level: 'PENDIENTE', reasons: ['falta informe final'] }),
+  },
+  {
+    when: 'el tutor todavía no evalúa',
+    applies: (input) => input.tutorEvaluationScore === null,
+    decide: () => ({ level: 'PENDIENTE', reasons: ['falta evaluación del tutor'] }),
+  },
+  {
+    // La regla anterior ya descartó la nota ausente, así que aquí la nota existe y es menor al mínimo.
+    // El informe final está entregado: las reglas de arriba lo exigen.
+    when: 'la evaluación del tutor está por debajo del mínimo',
+    applies: (input) => !meetsMinimum(input.tutorEvaluationScore),
+    decide: () => ({
+      level: 'NO_ACREDITADO',
+      reasons: ['evaluación del tutor por debajo del mínimo', 'informe final entregado pese a evaluación baja'],
+    }),
+  },
+  {
+    when: 'falta la evaluación de la empresa o es baja',
+    applies: (input) => !meetsMinimum(input.companyEvaluationScore),
+    decide: () => ({
+      level: 'ACREDITADO_CON_OBSERVACIONES',
+      reasons: ['falta evaluación de la empresa o es baja'],
+    }),
+  },
+]
+
+// Si ninguna regla de arriba aplica, la plaza cumple todas las condiciones.
+const ACCREDITED: Decision = { level: 'ACREDITADO', reasons: [] }
+
 export function calculateAccreditationStatus(input: AccreditationInput): AccreditationResult {
-  const reasons: string[] = []
-  let level: AccreditationLevel = 'PENDIENTE'
-  const percentage = Math.round((input.approvedHours / input.requiredHours) * 100)
+  const decision = RULES.find((rule) => rule.applies(input))?.decide(input) ?? ACCREDITED
 
-  if (input.placementStatus === 'ABANDONED') {
-    level = 'NO_ACREDITADO'
-    reasons.push('placement abandonado')
-    if (input.pendingHours > 0) {
-      reasons.push(`hay ${input.pendingHours} horas pendientes sin revisar`)
-    }
-  } else {
-    if (input.placementStatus === 'SUSPENDED') {
-      level = 'NO_ACREDITADO'
-      reasons.push('placement suspendido')
-      if (input.hasAgreement) {
-        reasons.push('convenio vigente pese a la suspensión')
-      }
-    } else {
-      if (input.approvedHours >= input.requiredHours) {
-        if (input.hasAgreement) {
-          if (input.hasInsurance) {
-            if (input.hasFinalReport) {
-              if (input.tutorEvaluationScore !== null) {
-                if (input.tutorEvaluationScore >= 3) {
-                  if (input.companyEvaluationScore !== null && input.companyEvaluationScore >= 3) {
-                    level = 'ACREDITADO'
-                  } else {
-                    level = 'ACREDITADO_CON_OBSERVACIONES'
-                    reasons.push('falta evaluación de la empresa o es baja')
-                  }
-                } else {
-                  level = 'NO_ACREDITADO'
-                  reasons.push('evaluación del tutor por debajo del mínimo')
-                  if (input.hasFinalReport) {
-                    reasons.push('informe final entregado pese a evaluación baja')
-                  }
-                }
-              } else {
-                level = 'PENDIENTE'
-                reasons.push('falta evaluación del tutor')
-              }
-            } else {
-              level = 'PENDIENTE'
-              reasons.push('falta informe final')
-            }
-          } else {
-            level = 'NO_ACREDITADO'
-            reasons.push('falta seguro')
-            if (input.pendingHours > 0) {
-              reasons.push(`hay ${input.pendingHours} horas pendientes de aprobación`)
-            }
-          }
-        } else {
-          level = 'NO_ACREDITADO'
-          reasons.push('falta convenio')
-          if (input.hasInsurance) {
-            reasons.push('seguro vigente pese a la falta de convenio')
-          }
-        }
-      } else {
-        level = 'PENDIENTE'
-        reasons.push('horas insuficientes')
-        if (input.pendingHours > 0) {
-          reasons.push(`hay ${input.pendingHours} horas pendientes de aprobación`)
-        }
-      }
-    }
+  return {
+    placementId: input.placementId,
+    studentName: input.studentName,
+    level: decision.level,
+    reasons: decision.reasons,
+    completionPercentage: completionPercentage(input),
   }
-
-  return { placementId: input.placementId, studentName: input.studentName, level, reasons, completionPercentage: percentage }
 }
