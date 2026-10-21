@@ -3,10 +3,10 @@
 Responsable: Anthony. Duración objetivo: **5 minutos**. Audiencia propuesta: unidad de
 vinculación de una carrera; duración y audiencia definitivas por confirmar con el docente.
 
-**Estado:** guion preparado y fuentes verificadas. El ensayo cronometrado en la aplicación
-real queda pendiente: Docker está iniciado, pero el entorno de ejecución no tiene acceso
-al motor (`permission denied`) ni al puerto de PostgreSQL (`EACCES`).
-Los resultados esperados de la demo no se presentan como resultados ya observados.
+**Estado (21 de octubre de 2026):** guion preparado y cifras regeneradas sobre `develop` con todo
+integrado, con PostgreSQL real. El ensayo cronometrado en la aplicación real sigue pendiente:
+lo único que se comprobó en la aplicación fue iniciar sesión como coordinación. Los
+resultados esperados de la demo no se presentan como resultados ya observados.
 
 ## Preparación antes de presentar
 
@@ -15,7 +15,7 @@ Los resultados esperados de la demo no se presentan como resultados ya observado
 2. Iniciar API y frontend siguiendo sus README. Mantener API disponible durante todo el
    recorrido; el corte de red afecta únicamente al navegador del estudiante.
 3. Abrir cuatro perfiles de navegador independientes, una sesión por rol. Evitar varias
-   pestañas que compartan la sesión mientras T-1b siga pendiente. Aceptar el aviso de
+   pestañas que compartan la sesión mientras la renovación entre pestañas (T-1b, ya integrada) no se haya probado en un navegador real. Aceptar el aviso de
    almacenamiento local al entrar como estudiante y esperar la sincronización inicial.
 4. Preparar las cuentas siguientes. La contraseña pública del seed es `yura1234`,
    exclusivamente para el entorno de demostración.
@@ -62,19 +62,19 @@ resolverlo después y repetir el ensayo completo antes de declararlo aprobado.
 
 ## Cifras y alcance de la evidencia
 
-Base backend `5df1edf`; base frontend `4feb779`. Los cambios locales del backend se
-identifican también con un hash de fuentes en `pitch-cifras.json`, generado a partir
-de reportes JSON reales. No reutilizar los antiguos «288 backend / 144 frontend».
+Base backend `f055ed9`; base frontend `bcdedaa` (21 de octubre de 2026). Las fuentes se
+identifican con un hash en `pitch-cifras.json`, generado a partir de reportes JSON reales.
+Las cifras anteriores (288/144, 246 sin PostgreSQL) quedaron obsoletas.
 
 | Dato | Valor comprobado o esperado | Fuente y límite |
 |---|---|---|
-| Backend, suite sin PostgreSQL | 246 pruebas aprobadas en 24 archivos | Ejecución local. Excluye explícitamente las suites que requieren PostgreSQL; no es el total de CI. |
-| Frontend | 180 pruebas aprobadas en 36 archivos | Ejecución completa de Vitest sobre el `develop` actualizado. No equivale a un ensayo de navegador. |
-| Lint backend | 16 → 2 hallazgos; quedan 1 error y 1 advertencia | Reporte ESLint. Complejidad de acreditación pendiente de E5-02; lint global aún falla. |
+| Backend, suite completa | 479 pruebas aprobadas en 38 archivos; 92,6 % de cobertura de líneas | Ejecución local con PostgreSQL real (incluye las suites de concurrencia). |
+| Frontend | 244 pruebas aprobadas en 42 archivos; 63,6 % de cobertura de líneas | Ejecución completa de Vitest sobre `develop`. No equivale a un ensayo de navegador. |
+| Lint backend y frontend | 16 → 0 hallazgos en el backend; 16 → 0 en el frontend | Reportes ESLint; `pnpm lint` termina con código 0 en los dos repos. |
 | Typecheck y build backend | Correctos | `tsc --noEmit` y `tsc -p tsconfig.build.json`. |
 | Seed de demostración | 200 estudiantes, 200 plazas y 4.000 registros de horas | Valores que crea `prisma/seed.ts` en una base nueva: 200 × 20. Son datos sintéticos, no clientes reales ni una medición de carga. Confirmar conteos con el prechequeo. |
 | Estado inicial del Estudiante 0 | 60 horas aprobadas, 20 pendientes, 240 requeridas | Derivado del seed: 15 registros aprobados de 4 horas y 5 enviados de 4. Confirmar en la base de demo. |
-| Tope diario backend | 8 horas por defecto | `hour-rules.ts`, configurable mediante `MAX_HOURS_PER_DAY`. El frontend todavía debe completar E6-01. |
+| Tope diario | 8 horas por día | Backend: `hour-rules.ts`, configurable con `MAX_HOURS_PER_DAY`. Frontend: `hourRules.ts` (constante, E6-01). |
 
 ### Evidencia por afirmación del producto
 
@@ -89,13 +89,13 @@ de reportes JSON reales. No reutilizar los antiguos «288 backend / 144 frontend
 ## Reproducir las cifras
 
 Desde el backend, generar reportes en una carpeta temporal. Estos comandos de PowerShell
-no alteran datos de negocio; el primer conjunto excluye explícitamente PostgreSQL:
+no alteran datos de negocio; con PostgreSQL arriba (`docker compose up -d`):
 
 ```powershell
 $reports = Join-Path ([System.IO.Path]::GetTempPath()) 'yura-pitch'
 New-Item -ItemType Directory -Force $reports | Out-Null
 $env:JWT_SECRET = 'pitch-local-tests-only'
-pnpm exec vitest run --exclude '**/*-e2e.spec.ts' --exclude '**/*.postgres.spec.ts' --exclude '**/sync-pull-cursor.spec.ts' --reporter=json --outputFile="$reports/backend.json"
+pnpm exec vitest run --reporter=json --outputFile="$reports/backend.json"
 pnpm exec eslint . -f json -o "$reports/eslint.json"
 Push-Location ../practicas-preprofesionales-frontend-a1
 pnpm exec vitest run --reporter=json --outputFile="$reports/frontend.json"
@@ -109,9 +109,8 @@ el inicio de la corrida, aprobados/fallidos/pendientes, cantidad de archivos y h
 de los reportes. No suma los tests del frontend con los del backend para simular
 una única cobertura de integración.
 
-Para el cierre con PostgreSQL disponible, usar una base de pruebas dedicada y migrada,
-ejecutar `pnpm test:cov` en ambos repos y guardar esos nuevos resultados por separado.
-Solo esa ejecución permite actualizar las afirmaciones sobre integración contra la base.
+Las cifras de este documento ya vienen de la suite completa con PostgreSQL; para cobertura,
+ejecutar `pnpm test:cov` en cada repo.
 
 ## Límites y respuestas breves
 
@@ -120,18 +119,19 @@ Solo esa ejecución permite actualizar las afirmaciones sobre integración contr
 - **¿Se pierden los datos si cierro sesión con pendientes?** Hay un aviso; no cerrar ni
   descartar pendientes durante la demo. El almacenamiento pertenece a ese dispositivo.
 - **¿Ya están probadas varias pestañas y toda la seguridad?** Existen pruebas específicas;
-  la rotación de refresh entre pestañas sigue siendo T-1b. No afirmar seguridad absoluta.
+  la rotación de refresh entre pestañas se corrigió con Web Locks (T-1b) pero no se ha probado
+  en un navegador real con dos pestañas. No afirmar seguridad absoluta.
 - **¿El tutor recibe un correo?** No. La notificación actual del backend es de consola.
 - **¿Ahorra un porcentaje de tiempo o soporta miles de usuarios simultáneos?** No hay
   medición de campo ni de carga que permita prometerlo. El piloto debe obtenerla.
-- **¿Qué queda?** Complejidad de acreditación, historias de frontend que falten integrar,
-  fechas E6-02 y las deudas vigentes. El rediseño está aplazado según el plan.
+- **¿Qué queda?** E4 (rúbricas), E7 (panel de seguimiento), E8 (períodos), el acta en PDF y
+  los avisos de E5, y el rediseño (aplazado). Todo está listado en `CIERRE.md`.
 
 ## Registro del ensayo
 
 | Fecha | Entorno y commits | Duración real | Offline → sync → aprobación | Cuatro roles | Incidencias | Resultado |
 |---|---|---|---|---|---|---|
-| Pendiente | Acceso a Docker/PostgreSQL denegado al entorno de ejecución | Sin medir | Sin ejecutar en navegador | Sin ejecutar | Habilitar acceso al entorno de demo | No aprobado todavía |
+| Pendiente | Entorno de demo levantado el 21 de octubre (backend, frontend, seed); solo se verificó el inicio de sesión | Sin medir | Sin ejecutar | Sin ejecutar | Falta el ensayo completo con cronómetro | No aprobado todavía |
 
 El guion queda listo para Mabe. El criterio final se cumple únicamente al registrar un
 ensayo completo de cinco minutos sobre la aplicación real, sin correcciones manuales.
