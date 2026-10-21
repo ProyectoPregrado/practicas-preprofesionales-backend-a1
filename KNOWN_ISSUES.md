@@ -140,9 +140,12 @@ reescribió como una lista de reglas ordenadas: la primera que aplica decide el 
 razones, y el orden de la lista es la precedencia. Sin `if` anidados; ESLint pasa de 6
 problemas (5 errores) a 0 en `accreditation.ts`. Se comprobó que el resultado es idéntico al
 de la versión anterior en 294.000 combinaciones de entradas (incluidos `NaN`, negativos y
-`null` en horas, pendientes y notas) y los tests de E5-01 no se modificaron. Los defectos que la reescritura
-conserva a propósito (`requiredHours = 0` da `NaN` o `Infinity`; el texto «hay 1 horas») van
-aparte, en E5-01b.
+`null` en horas, pendientes y notas) y los tests de E5-01 no se modificaron. Los dos defectos que la
+reescritura conservó a propósito se corrigieron aparte, con E5-01b: con `requiredHours = 0` el
+porcentaje daba `NaN` o `Infinity` (la API lo serializa como `null` y la pantalla de acreditación
+mostraba «null%»); ahora es 100 %, porque el requisito de horas está cumplido. Y el texto «hay 1
+horas pendientes» ahora dice «hay 1 hora pendiente». El nivel de acreditación no cambió: si una
+plaza puede exigir 0 horas es una decisión de producto.
 
 ## D-06 · La validación de horas está en tres lados
 

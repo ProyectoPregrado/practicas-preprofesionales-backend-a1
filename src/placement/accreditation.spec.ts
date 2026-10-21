@@ -145,11 +145,18 @@ describe('calculateAccreditationStatus', () => {
     })
 
     it.each([
-      [{ placementStatus: 'ABANDONED' }, 'hay 1 horas pendientes sin revisar'],
-      [{ approvedHours: 0 }, 'hay 1 horas pendientes de aprobación'],
-      [{ hasInsurance: false }, 'hay 1 horas pendientes de aprobación'],
-    ])('mentions a single pending hour (%o)', (overrides, reason) => {
+      [{ placementStatus: 'ABANDONED' }, 'hay 1 hora pendiente sin revisar'],
+      [{ approvedHours: 0 }, 'hay 1 hora pendiente de aprobación'],
+      [{ hasInsurance: false }, 'hay 1 hora pendiente de aprobación'],
+    ])('uses the singular for a single pending hour (%o)', (overrides, reason) => {
       expect(run({ ...overrides, pendingHours: 1 }).reasons).toContain(reason)
+    })
+
+    it.each([
+      [{ placementStatus: 'ABANDONED' }, 'hay 2 horas pendientes sin revisar'],
+      [{ approvedHours: 0 }, 'hay 2 horas pendientes de aprobación'],
+    ])('keeps the plural for more than one pending hour (%o)', (overrides, reason) => {
+      expect(run({ ...overrides, pendingHours: 2 }).reasons).toContain(reason)
     })
 
     it('does not mention pending hours when there are none', () => {
@@ -201,17 +208,25 @@ describe('calculateAccreditationStatus', () => {
     )
   })
 
-  // Hoy el código no protege este caso; se congela tal cual. Si es un defecto, es una tarea aparte.
+  // E5-01b: con 0 horas requeridas la división daba NaN o Infinity, que la API serializa como null y la
+  // pantalla de acreditación mostraba como «null%». Sin horas que exigir, el requisito de horas está cumplido: 100 %.
+  // El nivel no cambia: si una plaza puede exigir 0 horas es una decisión de producto, no de este arreglo.
   describe('requiredHours of zero', () => {
-    it('yields a NaN percentage with no approved hours', () => {
+    it('reports 100 % (a finite number) with no approved hours', () => {
       const result = run({ requiredHours: 0, approvedHours: 0 })
 
       expect(result.level).toBe('ACREDITADO')
-      expect(result.completionPercentage).toBeNaN()
+      expect(result.completionPercentage).toBe(100)
     })
 
-    it('yields an infinite percentage with approved hours', () => {
-      expect(run({ requiredHours: 0, approvedHours: 10 }).completionPercentage).toBe(Infinity)
+    it('reports 100 % (a finite number) with approved hours', () => {
+      expect(run({ requiredHours: 0, approvedHours: 10 }).completionPercentage).toBe(100)
+    })
+
+    it('survives JSON serialization without turning into null', () => {
+      const json = JSON.parse(JSON.stringify(run({ requiredHours: 0, approvedHours: 5 })))
+
+      expect(json.completionPercentage).toBe(100)
     })
   })
 })

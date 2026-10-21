@@ -48,8 +48,17 @@ const meetsMinimum = (score: number | null): boolean => score !== null && score 
 const hoursReached = (input: AccreditationInput): boolean => input.approvedHours >= input.requiredHours
 
 // Aviso opcional de horas pendientes; cada regla elige cómo se llaman (sin revisar o de aprobación).
-const pendingNote = (input: AccreditationInput, label: string): string[] =>
-  input.pendingHours > 0 ? [`hay ${input.pendingHours} horas ${label}`] : []
+// E5-01b: «1 hora pendiente», no «1 horas pendientes».
+const pendingNote = (input: AccreditationInput, label: 'sin revisar' | 'de aprobación'): string[] => {
+  const hours = input.pendingHours
+  // Forma positiva a propósito: con NaN la comparación da falso y no hay aviso, igual que antes.
+  if (hours > 0) return [hours === 1 ? `hay 1 hora pendiente ${label}` : `hay ${hours} horas pendientes ${label}`]
+  return []
+}
+
+// E5-01b: sin horas requeridas no hay nada que dividir; el requisito de horas está cumplido (100 %).
+const completionPercentage = (input: AccreditationInput): number =>
+  input.requiredHours > 0 ? Math.round((input.approvedHours / input.requiredHours) * 100) : 100
 
 // E5-02 (antes D-05): la decisión es una lista de reglas ordenadas. La PRIMERA que aplica decide
 // nivel y razones; el orden de la lista es la precedencia. Está fijado por los tests de E5-01.
@@ -59,7 +68,7 @@ const RULES: Rule[] = [
     applies: (input) => input.placementStatus === 'ABANDONED',
     decide: (input) => ({
       level: 'NO_ACREDITADO',
-      reasons: ['placement abandonado', ...pendingNote(input, 'pendientes sin revisar')],
+      reasons: ['placement abandonado', ...pendingNote(input, 'sin revisar')],
     }),
   },
   {
@@ -75,7 +84,7 @@ const RULES: Rule[] = [
     applies: (input) => !hoursReached(input),
     decide: (input) => ({
       level: 'PENDIENTE',
-      reasons: ['horas insuficientes', ...pendingNote(input, 'pendientes de aprobación')],
+      reasons: ['horas insuficientes', ...pendingNote(input, 'de aprobación')],
     }),
   },
   {
@@ -91,7 +100,7 @@ const RULES: Rule[] = [
     applies: (input) => !input.hasInsurance,
     decide: (input) => ({
       level: 'NO_ACREDITADO',
-      reasons: ['falta seguro', ...pendingNote(input, 'pendientes de aprobación')],
+      reasons: ['falta seguro', ...pendingNote(input, 'de aprobación')],
     }),
   },
   {
@@ -135,6 +144,6 @@ export function calculateAccreditationStatus(input: AccreditationInput): Accredi
     studentName: input.studentName,
     level: decision.level,
     reasons: decision.reasons,
-    completionPercentage: Math.round((input.approvedHours / input.requiredHours) * 100),
+    completionPercentage: completionPercentage(input),
   }
 }
