@@ -6,3 +6,5 @@ eslint-report.json
 .env
 .yura-ci/
 .atl
+# DOC-1: archivos subidos en desarrollo (UPLOAD_DIR)
+uploads
