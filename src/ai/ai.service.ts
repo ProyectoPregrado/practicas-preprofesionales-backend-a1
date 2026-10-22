@@ -1,4 +1,12 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  PayloadTooLargeException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { Role } from '@prisma/client'
 import { formatDay } from '../common/calendar-date'
 import { DocumentService } from '../document/document.service'
@@ -12,6 +20,7 @@ import {
   checkAgainstPlacement,
 } from './document-check'
 import { DRAFT_SCHEMA, DRAFT_SYSTEM, type HourLogDraft, type ModelDraft, basicDraft, finishDraft } from './hour-log-draft'
+import { MAX_AUDIO_BYTES, TRANSCRIBE_SCHEMA, TRANSCRIBE_SYSTEM, normalizeAudioType } from './transcribe'
 import { HINTS_SCHEMA, HINTS_SYSTEM, type ModelHints, type ReviewHint, mergeHints, ruleHints } from './review-hints'
 
 interface Caller {
@@ -46,6 +55,27 @@ export class AiService {
 
   status() {
     return { enabled: this.ai.enabled, provider: this.ai.providerName }
+  }
+
+  /**
+   * IA-3: transcribe el audio del dictado. El navegador graba y la IA escribe el texto, así el dictado no depende del
+   * reconocimiento de voz de cada navegador (que falla sin aviso o no existe en Firefox).
+   */
+  async transcribe(audio: { buffer: Buffer; size: number; mimetype: string } | undefined): Promise<{ text: string }> {
+    if (!audio) throw new BadRequestException('falta el audio')
+    if (audio.size > MAX_AUDIO_BYTES) throw new PayloadTooLargeException('el audio es demasiado largo')
+    const mimeType = normalizeAudioType(audio.mimetype)
+    if (!mimeType) throw new BadRequestException('formato de audio no admitido')
+    if (!this.ai.enabled) throw new ServiceUnavailableException('el dictado por voz necesita la IA configurada')
+    const { text } = await this.ai.json<{ text: string }>({
+      system: TRANSCRIBE_SYSTEM,
+      schema: TRANSCRIBE_SCHEMA,
+      content: [
+        { type: 'file', mimeType, data: audio.buffer.toString('base64') },
+        { type: 'text', text: 'Transcribe este audio.' },
+      ],
+    })
+    return { text: text.trim() }
   }
 
   /** El estudiante cuenta su día con sus palabras (o por voz) y recibe el registro listo para revisar y guardar. */
