@@ -21,8 +21,8 @@ export const DRAFT_SYSTEM = [
   'Recibes lo que la persona contó de su día y la fecha de hoy. Devuelve:',
   '- date: la fecha del trabajo en formato AAAA-MM-DD. Resuelve «hoy», «ayer», «el lunes» respecto de la fecha de hoy. Si no se menciona, usa hoy.',
   '- startTime y endTime en formato HH:MM de 24 horas. «De 8 a 12» es 08:00 a 12:00; «de 2 a 6 de la tarde» es 14:00 a 18:00. Vacío si no se menciona.',
-  '- activity: la actividad redactada para que la lea el tutor, en español neutro y con tuteo, en una o dos frases concretas: qué se hizo y con qué resultado. No inventes datos que la persona no dijo.',
-  '- followUp: si la actividad es vaga («hice cosas», «ayudé») o falta el horario, una pregunta corta para completarla; si no falta nada, cadena vacía.',
+  '- activity: la actividad redactada en primera persona, como la firma el estudiante en su libro («Configuré el servidor…», nunca «Configuraste…»), en español neutro, en una o dos frases concretas: qué hizo y con qué resultado. No inventes datos que la persona no dijo.',
+  '- followUp: si la actividad es vaga («hice cosas», «ayudé») o falta el horario, una pregunta corta para completarla, dirigida al estudiante con tuteo; si no falta nada, cadena vacía.',
 ].join('\n')
 
 export const DRAFT_SCHEMA = {
