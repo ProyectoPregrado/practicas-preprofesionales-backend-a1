@@ -5,9 +5,11 @@
 # Estos paquetes sí los necesitan para dejar listos sus binarios nativos
 # (motor de Prisma, binario de esbuild, binario de SWC).
 allowBuilds:
+  '@google/genai': false
   "@prisma/client": true
   "@prisma/engines": true
   '@scarf/scarf': false
   "@swc/core": true
   esbuild: true
   prisma: true
+  protobufjs: false
