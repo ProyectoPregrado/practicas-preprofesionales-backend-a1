@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import { Role } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AiClient } from './ai-client'
@@ -50,6 +50,26 @@ describe('AiService (IA-1)', () => {
       ctx = setup(false)
       await ctx.service.draftHourLog('hoy de 9 a 13 revisé facturas del mes', '2026-10-21')
       expect(ctx.ai.json).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('transcribir dictado (IA-3)', () => {
+    const audio = { buffer: Buffer.from('RIFF'), size: 4, mimetype: 'audio/wav' }
+
+    it('manda el audio a la IA y devuelve el texto sin espacios de más', async () => {
+      ctx = setup(true)
+      ctx.ai.json.mockResolvedValue({ text: '  Hoy de 8 a 12 configuré el servidor.  ' })
+
+      await expect(ctx.service.transcribe(audio)).resolves.toEqual({ text: 'Hoy de 8 a 12 configuré el servidor.' })
+      expect(ctx.ai.json.mock.calls[0][0].content[0]).toMatchObject({ type: 'file', mimeType: 'audio/wav' })
+    })
+
+    it('rechaza la falta de audio, un formato que no es audio y la falta de IA', async () => {
+      ctx = setup(true)
+      await expect(ctx.service.transcribe(undefined)).rejects.toBeInstanceOf(BadRequestException)
+      await expect(ctx.service.transcribe({ ...audio, mimetype: 'application/pdf' })).rejects.toBeInstanceOf(BadRequestException)
+      ctx = setup(false)
+      await expect(ctx.service.transcribe(audio)).rejects.toBeInstanceOf(ServiceUnavailableException)
     })
   })
 

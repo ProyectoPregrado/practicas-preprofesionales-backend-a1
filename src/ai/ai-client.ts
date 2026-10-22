@@ -61,6 +61,8 @@ class ClaudeProvider implements Provider {
 
 function toClaudeBlock(part: AiPart): Anthropic.Beta.Messages.BetaContentBlockParam {
   if (part.type === 'text') return { type: 'text', text: part.text }
+  // Claude no recibe audio: la transcripción del dictado necesita Gemini.
+  if (part.mimeType.startsWith('audio/')) throw new Error('este proveedor no transcribe audio')
   if (part.mimeType === 'application/pdf') {
     return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: part.data } }
   }
