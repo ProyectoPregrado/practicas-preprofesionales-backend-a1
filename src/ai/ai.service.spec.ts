@@ -119,7 +119,7 @@ describe('AiService (IA-1)', () => {
 
       const result = await ctx.service.checkDocument(5, tutor)
 
-      expect(ctx.ai.json.mock.calls[0][0].content[0]).toMatchObject({ type: 'document', source: { media_type: 'application/pdf' } })
+      expect(ctx.ai.json.mock.calls[0][0].content[0]).toMatchObject({ type: 'file', mimeType: 'application/pdf' })
       expect(result.aiUsed).toBe(true)
       expect(result.findings[0]).toMatchObject({ level: 'red' })
     })

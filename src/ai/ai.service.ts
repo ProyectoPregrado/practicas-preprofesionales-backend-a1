@@ -45,7 +45,7 @@ export class AiService {
   ) {}
 
   status() {
-    return { enabled: this.ai.enabled }
+    return { enabled: this.ai.enabled, provider: this.ai.providerName }
   }
 
   /** El estudiante cuenta su día con sus palabras (o por voz) y recibe el registro listo para revisar y guardar. */
@@ -121,14 +121,7 @@ export class AiService {
       }
     }
 
-    const data = buffer.toString('base64')
-    const file =
-      document.mimeType === 'application/pdf'
-        ? ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } } as const)
-        : ({
-            type: 'image',
-            source: { type: 'base64', media_type: document.mimeType as 'image/png' | 'image/jpeg', data },
-          } as const)
+    const file = { type: 'file', mimeType: document.mimeType, data: buffer.toString('base64') } as const
 
     try {
       const extracted = await this.ai.json<ExtractedDocument>({
